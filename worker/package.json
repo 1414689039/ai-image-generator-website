@@ -1,0 +1,22 @@
+{
+  "name": "ai-image-generator-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker后端",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply ai-image-db",
+    "db:create": "wrangler d1 create ai-image-db"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "hono": "^4.0.0",
+    "@hono/cors": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "wrangler": "^3.0.0"
+  }
+}
+

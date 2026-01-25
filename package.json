@@ -1,0 +1,23 @@
+{
+  "name": "ai-image-generator",
+  "version": "1.0.0",
+  "description": "AI图像生成网站 - 部署在Cloudflare平台",
+  "scripts": {
+    "dev": "npm run dev:frontend",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:worker": "cd worker && npm run dev",
+    "build": "npm run build:frontend && npm run build:worker",
+    "build:frontend": "cd frontend && npm run build",
+    "build:worker": "cd worker && npm run build",
+    "deploy": "npm run build && wrangler pages deploy frontend/dist && wrangler deploy",
+    "db:migrate": "cd worker && wrangler d1 migrations apply ai-image-db",
+    "db:create": "cd worker && wrangler d1 create ai-image-db"
+  },
+  "keywords": ["ai", "image-generation", "cloudflare"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
+

@@ -1,0 +1,26 @@
+name = "ai-image-generator-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# D1数据库配置
+[[d1_databases]]
+binding = "DB"
+database_name = "ai-image-db"
+database_id = "" # 部署时需要填写实际的database_id
+
+# R2存储配置（用于存储上传的参考图）
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "ai-image-uploads"
+
+# KV存储配置（可选，用于缓存）
+[[kv_namespaces]]
+binding = "CACHE"
+id = "" # 部署时需要创建KV namespace并填写id
+
+# 环境变量（在Cloudflare Dashboard中设置）
+# NANO_BANANA_API_KEY - Nano Banana API密钥
+# JWT_SECRET - JWT令牌密钥
+# PAYMENT_API_KEY - 支付接口密钥
+# PAYMENT_API_URL - 支付接口URL
+
