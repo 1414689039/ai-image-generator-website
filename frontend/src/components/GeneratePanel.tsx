@@ -9,7 +9,7 @@ interface GeneratePanelProps {
 
 export default function GeneratePanel({ selectedTab, onTabChange, onGenerate }: GeneratePanelProps) {
   const [prompt, setPrompt] = useState('')
-  const [model, setModel] = useState('Nano Banana')
+  const [model, setModel] = useState('gemini-2.5-flash-image')
   const [referenceImage, setReferenceImage] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('1:1')
   const [resolution, setResolution] = useState('1024*1024')
@@ -90,8 +90,9 @@ export default function GeneratePanel({ selectedTab, onTabChange, onGenerate }: 
           onChange={(e) => setModel(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500"
         >
-          <option>Nano Banana</option>
-          <option>其他模型</option>
+          <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image (Nano Banana)</option>
+          <option value="gemini-2.5-flash-image-preview">Gemini 2.5 Flash Image Preview</option>
+          <option value="dall-e-3">DALL-E 3</option>
         </select>
       </div>
 

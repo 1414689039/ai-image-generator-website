@@ -1,0 +1,76 @@
+[
+  {
+    "name": "Case 1: 正常注册 (Valid User)",
+    "payload": {
+      "username": "user_1769529014050",
+      "email": "user_1769529014050@example.com",
+      "password": "password123"
+    },
+    "expectedStatus": 201,
+    "actualStatus": 201,
+    "response": {
+      "message": "注册成功",
+      "userId": 1
+    },
+    "duration": "102ms",
+    "status": "PASS"
+  },
+  {
+    "name": "Case 2: 密码过短 (Short Password)",
+    "payload": {
+      "username": "user_1769529014050_short",
+      "email": "short_1769529014050@example.com",
+      "password": "123"
+    },
+    "expectedStatus": 400,
+    "actualStatus": 400,
+    "response": {
+      "error": "密码长度至少为6位"
+    },
+    "duration": "5ms",
+    "status": "PASS"
+  },
+  {
+    "name": "Case 3: 缺少字段 - 无密码 (Missing Password)",
+    "payload": {
+      "username": "user_1769529014050_nopass",
+      "email": "nopass_1769529014050@example.com"
+    },
+    "expectedStatus": 400,
+    "actualStatus": 400,
+    "response": {
+      "error": "用户名、邮箱和密码都是必填项"
+    },
+    "duration": "4ms",
+    "status": "PASS"
+  },
+  {
+    "name": "Case 4: 缺少字段 - 无邮箱 (Missing Email)",
+    "payload": {
+      "username": "user_1769529014050_noemail",
+      "password": "password123"
+    },
+    "expectedStatus": 400,
+    "actualStatus": 400,
+    "response": {
+      "error": "用户名、邮箱和密码都是必填项"
+    },
+    "duration": "5ms",
+    "status": "PASS"
+  },
+  {
+    "name": "Case 5: 重复用户名/邮箱 (Duplicate)",
+    "payload": {
+      "username": "user_1769529014050",
+      "email": "user_1769529014050@example.com",
+      "password": "password123"
+    },
+    "expectedStatus": 400,
+    "actualStatus": 400,
+    "response": {
+      "error": "用户名或邮箱已存在"
+    },
+    "duration": "7ms",
+    "status": "PASS"
+  }
+]

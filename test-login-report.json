@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Case 1: 正常登录 (Valid Login)",
+    "status": "PASS",
+    "expected": 200,
+    "actual": 200,
+    "error": null,
+    "response": {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjcsInVzZXJuYW1lIjoibG9naW5fdGVzdF8xNzY5NTMxMjIxNzEyIiwiaXNBZG1pbiI6ZmFsc2UsImlhdCI6MTc2OTUzMTIyMSwiZXhwIjoxNzcwMTM2MDIxfQ.Lkxrlo0MWKI3sCpL8LJHlxdtmNyj8E6hrajvytTHZ-Y",
+      "user": {
+        "id": 7,
+        "username": "login_test_1769531221712",
+        "email": "login_1769531221712@test.com",
+        "points": 0,
+        "isAdmin": false
+      }
+    }
+  },
+  {
+    "name": "Case 2: 错误密码登录 (Invalid Password)",
+    "status": "PASS",
+    "expected": 401,
+    "actual": 401,
+    "error": null,
+    "response": {
+      "error": "用户名或密码错误"
+    }
+  },
+  {
+    "name": "Case 3: 访问受保护资源/主页 (Access Protected Route)",
+    "status": "PASS",
+    "expected": 200,
+    "actual": 200,
+    "error": null,
+    "response": {
+      "id": 7,
+      "username": "login_test_1769531221712",
+      "email": "login_1769531221712@test.com",
+      "points": 0,
+      "isAdmin": false,
+      "createdAt": "2026-01-27 16:27:01"
+    }
+  }
+]

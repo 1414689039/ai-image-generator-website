@@ -11,7 +11,12 @@ export const authRoutes = new Hono<{ Bindings: { DB: D1Database; JWT_SECRET: str
  */
 authRoutes.post('/register', async (c) => {
   try {
-    const { username, email, password } = await c.req.json()
+    let { username, email, password } = await c.req.json()
+
+    // 清理输入空格
+    username = username?.trim()
+    email = email?.trim()
+    password = password?.trim()
 
     // 验证输入
     if (!username || !email || !password) {
@@ -65,7 +70,11 @@ authRoutes.post('/register', async (c) => {
  */
 authRoutes.post('/login', async (c) => {
   try {
-    const { username, password } = await c.req.json()
+    let { username, password } = await c.req.json()
+
+    // 清理输入空格
+    username = username?.trim()
+    password = password?.trim()
 
     if (!username || !password) {
       return c.json({ error: '用户名和密码都是必填项' }, 400)

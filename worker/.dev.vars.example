@@ -3,6 +3,7 @@
 
 JWT_SECRET=your-jwt-secret-key-here
 NANO_BANANA_API_KEY=your-nano-banana-api-key
+NANO_BANANA_API_URL=https://newapi.pockgo.com
 PAYMENT_API_KEY=your-payment-api-key
 PAYMENT_API_URL=https://api.payment-provider.com/v1/orders
 

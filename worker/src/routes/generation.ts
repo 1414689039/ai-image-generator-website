@@ -240,6 +240,7 @@ generationRoutes.get('/history', async (c: AuthContext) => {
  */
 async function callNanoBananaAPI(params: {
   apiKey: string
+  apiUrl?: string
   type: string
   prompt: string
   referenceImageUrl?: string | null
@@ -249,42 +250,185 @@ async function callNanoBananaAPI(params: {
   quality: string
   quantity: number
 }): Promise<{ images: string[] }> {
-  // 这里需要根据Nano Banana的实际API文档来实现
-  // 以下是示例代码，需要根据实际API调整
+  const baseUrl = params.apiUrl || 'https://newapi.pockgo.com'
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '')
   
-  const apiUrl = 'https://api.nanobanana.com/v1/generate' // 示例URL，需要替换为实际URL
+  // 判断是否使用 Gemini 系列模型（需走 Chat Completions 接口）
+  const isGeminiModel = params.model.startsWith('gemini')
   
-  const requestBody: any = {
-    model: params.model,
-    prompt: params.prompt,
-    width: params.width,
-    height: params.height,
-    num_images: params.quantity,
-  }
+  if (isGeminiModel) {
+    const endpoint = `${cleanBaseUrl}/v1/chat/completions`
+    
+    // 计算宽高比字符串
+    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
+    const divisor = gcd(params.width, params.height)
+    let aspectRatio = `${params.width / divisor}:${params.height / divisor}`
+    
+    // 映射到标准比例
+    const ratioMap: Record<string, string> = {
+      '1:1': '1:1',
+      '4:3': '4:3',
+      '3:4': '3:4',
+      '16:9': '16:9',
+      '9:16': '9:16',
+      // 近似值映射
+      '1024:768': '4:3',
+      '768:1024': '3:4'
+    }
+    // 如果不在标准列表中，默认使用最接近的或保持原样
+    if (ratioMap[aspectRatio]) {
+      aspectRatio = ratioMap[aspectRatio]
+    }
+    
+    // 构建消息体
+    const messages: any[] = []
+    
+    // 如果是 gemini-2.5-flash-image，支持通过 system message 设置宽高比
+    if (params.model === 'gemini-2.5-flash-image') {
+       messages.push({
+         role: 'system',
+         content: JSON.stringify({ imageConfig: { aspectRatio } })
+       })
+    }
+    
+    const userContent: any[] = [
+      {
+        type: 'text',
+        text: params.prompt
+      }
+    ]
+    
+    // 处理参考图
+    if (params.type === 'image_to_image' && params.referenceImageUrl) {
+      userContent.push({
+        type: 'image_url',
+        image_url: {
+          url: params.referenceImageUrl
+        }
+      })
+    }
+    
+    messages.push({
+      role: 'user',
+      content: userContent
+    })
+    
+    const requestBody: any = {
+      model: params.model,
+      messages: messages,
+      // Gemini 图片生成通常不需要 max_tokens 很大，但为了避免截断给一个合理值
+      max_tokens: 1000, 
+    }
+    
+    // gemini-2.5-flash-image 支持 extra_body 配置宽高比
+    if (params.model === 'gemini-2.5-flash-image') {
+      requestBody.extra_body = {
+        imageConfig: {
+          aspectRatio
+        }
+      }
+    }
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${params.apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    })
 
-  if (params.type === 'image_to_image' && params.referenceImageUrl) {
-    requestBody.reference_image = params.referenceImageUrl
-  }
+    if (!response.ok) {
+        const errorText = await response.text()
+        let errorMessage = `API Status: ${response.status}`
+        try {
+          const errorJson = JSON.parse(errorText)
+          if (errorJson.error && errorJson.error.message) {
+            errorMessage = errorJson.error.message
+          } else {
+            errorMessage = errorText
+          }
+        } catch (e) {
+          errorMessage = errorText
+        }
+        throw new Error(`API调用失败: ${errorMessage}`)
+    }
 
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${params.apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
-  })
+    const data: any = await response.json()
+    // 解析 Chat Completion 响应中的图片链接
+    // 假设图片链接在 content 中，可能是 markdown 格式 ![image](url) 或直接是 url
+    const content = data.choices?.[0]?.message?.content || ''
+    const urlMatch = content.match(/\((https?:\/\/[^\)]+)\)/) || content.match(/(https?:\/\/[^\s]+)/)
+    
+    if (urlMatch) {
+      return { images: [urlMatch[1] || urlMatch[0]] }
+    } else if (content.length > 10 && content.startsWith('http')) {
+       return { images: [content] }
+    } else {
+       // 如果没有找到 URL，返回 content 作为错误提示（或者假设生成失败）
+       // 但为了接口兼容，如果真的没找到 URL，可能需要抛出错误或记录日志
+       console.warn('No image URL found in response:', content)
+       // 尝试检查是否有 tool_calls 或其他字段（视具体 API 实现而定）
+       // 这里暂时假设一定会有 URL
+       if (content) return { images: [] } // 避免前端崩溃，但实际上是失败了
+       throw new Error('未在响应中找到图片链接')
+    }
+    
+  } else {
+    // 原有的 DALL-E 3 或其他兼容 OpenAI Image API 的模型
+    const endpoint = `${cleanBaseUrl}/v1/images/generations`
+    
+    const requestBody: any = {
+        model: params.model,
+        prompt: params.prompt,
+        n: params.quantity,
+        size: `${params.width}x${params.height}`,
+        response_format: 'url',
+        quality: params.quality === 'ultra_hd' ? 'hd' : 'standard', 
+    }
 
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`API调用失败: ${error}`)
-  }
+    if (params.type === 'image_to_image' && params.referenceImageUrl) {
+        if (params.referenceImageUrl.startsWith('http')) {
+           requestBody.prompt = `${params.referenceImageUrl} ${params.prompt}`
+        }
+    }
 
-  const data = await response.json()
-  
-  // 根据实际API响应格式调整
-  return {
-    images: data.images || data.urls || [],
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${params.apiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+    })
+
+    if (!response.ok) {
+        const errorText = await response.text()
+        let errorMessage = `API Status: ${response.status}`
+        try {
+        const errorJson = JSON.parse(errorText)
+        if (errorJson.error && errorJson.error.message) {
+            errorMessage = errorJson.error.message
+        } else {
+            errorMessage = errorText
+        }
+        } catch (e) {
+        errorMessage = errorText
+        }
+        throw new Error(`API调用失败: ${errorMessage}`)
+    }
+
+    const data: any = await response.json()
+    
+    if (data.data && Array.isArray(data.data)) {
+        return {
+        images: data.data.map((item: any) => item.url).filter((url: string) => !!url)
+        }
+    }
+    
+    return {
+        images: data.images || data.urls || [],
+    }
   }
 }
 

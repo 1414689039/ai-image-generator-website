@@ -7,16 +7,14 @@ import HistoryPanel from '../components/HistoryPanel'
 import apiClient from '../api/client'
 
 export default function Home() {
-  const { user, fetchUserInfo } = useAuthStore()
+  const { fetchUserInfo } = useAuthStore()
   const [selectedTab, setSelectedTab] = useState<'image' | 'video'>('image')
   const [generationHistory, setGenerationHistory] = useState<any[]>([])
   const [previewImages, setPreviewImages] = useState<string[]>([])
 
   useEffect(() => {
-    if (user) {
-      fetchUserInfo()
-      loadHistory()
-    }
+    fetchUserInfo()
+    loadHistory()
   }, [])
 
   const loadHistory = async () => {

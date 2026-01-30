@@ -6,21 +6,26 @@ compatibility_date = "2024-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "ai-image-db"
-database_id = "" # 部署时需要填写实际的database_id
+database_id = "4fd1ed63-08cb-497d-9cb3-4b2d34776e52" # 部署时需要填写实际的database_id
+# 本地开发时，Wrangler 会自动创建数据库
 
 # R2存储配置（用于存储上传的参考图）
-[[r2_buckets]]
-binding = "IMAGES"
-bucket_name = "ai-image-uploads"
+# [[r2_buckets]]
+# binding = "IMAGES"
+# bucket_name = "ai-image-uploads"
 
 # KV存储配置（可选，用于缓存）
-[[kv_namespaces]]
-binding = "CACHE"
-id = "" # 部署时需要创建KV namespace并填写id
+# 本地开发时不需要KV，部署时取消注释并填写id
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "" # 部署时需要创建KV namespace并填写id
 
 # 环境变量（在Cloudflare Dashboard中设置）
 # NANO_BANANA_API_KEY - Nano Banana API密钥
 # JWT_SECRET - JWT令牌密钥
 # PAYMENT_API_KEY - 支付接口密钥
 # PAYMENT_API_URL - 支付接口URL
+
+[vars]
+NANO_BANANA_API_URL = "https://newapi.pockgo.com"
 

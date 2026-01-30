@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { cors } from '@hono/cors'
+import { cors } from 'hono/cors'
 import { authRoutes } from './routes/auth'
 import { generationRoutes } from './routes/generation'
 import { userRoutes } from './routes/user'
@@ -14,6 +14,7 @@ type Env = {
   IMAGES: R2Bucket
   CACHE?: KVNamespace
   NANO_BANANA_API_KEY?: string
+  NANO_BANANA_API_URL?: string
   JWT_SECRET: string
   PAYMENT_API_KEY?: string
   PAYMENT_API_URL?: string
@@ -38,7 +39,20 @@ app.get('/health', (c) => {
 app.route('/api/auth', authRoutes)
 
 // 需要认证的路由
-app.use('/api/*', authMiddleware)
+app.use('/api/*', async (c, next) => {
+  // 排除不需要认证的路由
+  const publicPaths = [
+    '/api/auth', 
+    '/api/payment/notify', 
+    '/api/payment/callback',
+    '/api/payment/order' // 允许未登录查询订单状态（用于支付结果页）
+  ]
+  if (publicPaths.some(path => c.req.path.startsWith(path))) {
+    await next()
+    return
+  }
+  return authMiddleware(c, next)
+})
 app.route('/api/generation', generationRoutes)
 app.route('/api/user', userRoutes)
 app.route('/api/payment', paymentRoutes)

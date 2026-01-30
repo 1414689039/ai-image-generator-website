@@ -4,10 +4,11 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Home from './pages/Home'
 import Admin from './pages/Admin'
+import PaymentResult from './pages/PaymentResult'
 import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
-  const { isAuthenticated, user } = useAuthStore()
+  const { isAuthenticated } = useAuthStore()
 
   return (
     <BrowserRouter>
@@ -20,6 +21,12 @@ function App() {
             <ProtectedRoute>
               <Home />
             </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/payment/result"
+          element={
+             <PaymentResult />
           }
         />
         <Route

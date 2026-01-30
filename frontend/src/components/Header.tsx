@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut, Settings, User } from 'lucide-react'
+import { LogOut, Plus } from 'lucide-react'
+import { useState } from 'react'
+import RechargeModal from './RechargeModal'
 
 export default function Header() {
   const { user, logout, isAuthenticated } = useAuthStore()
+  const [showRecharge, setShowRecharge] = useState(false)
 
   if (!isAuthenticated) return null
 
@@ -35,9 +38,18 @@ export default function Header() {
             <span className="text-sm text-gray-600">中文</span>
             {user && (
               <>
-                <span className="text-sm text-gray-600">
-                  积分: {user.points.toFixed(2)}
-                </span>
+                <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1 rounded-full">
+                  <span className="text-sm text-gray-600">
+                    积分: {user.points?.toFixed(2) ?? '0.00'}
+                  </span>
+                  <button 
+                    onClick={() => setShowRecharge(true)}
+                    className="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center"
+                  >
+                    <Plus size={14} className="mr-0.5" /> 充值
+                  </button>
+                </div>
+                
                 {user.isAdmin && (
                   <Link
                     to="/admin"
@@ -58,6 +70,7 @@ export default function Header() {
           </div>
         </div>
       </div>
+      {showRecharge && <RechargeModal onClose={() => setShowRecharge(false)} />}
     </header>
   )
 }
