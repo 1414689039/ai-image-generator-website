@@ -147,13 +147,16 @@ export default function Admin() {
   }
 
   const handleSaveProvider = async () => {
-    let models = []
-    try {
-        models = JSON.parse(providerModal.data.modelsJson || '[]')
-    } catch (e) {
-        alert('模型列表 JSON 格式错误')
+    // 简化逻辑：只取单个模型名称
+    const modelName = providerModal.data.modelName?.trim()
+    
+    if (!modelName) {
+        alert('请输入模型名称')
         return
     }
+
+    // 封装为后端兼容的 models 数组
+    const models = [{ id: modelName, name: modelName, price: 1 }]
 
     const newProvider = {
         id: providerModal.data.id || Date.now().toString(),
@@ -448,7 +451,7 @@ export default function Admin() {
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold">模型供应商 (多渠道切换)</h2>
                     <button 
-                        onClick={() => setProviderModal({ show: true, data: { type: 'openai', modelsJson: '[]' } })}
+                        onClick={() => setProviderModal({ show: true, data: { type: 'openai', modelName: '' } })}
                         className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-500 flex items-center"
                     >
                         <Plus size={16} className="mr-2" />
@@ -484,7 +487,11 @@ export default function Admin() {
                             </button>
                         )}
                         <button 
-                            onClick={() => setProviderModal({ show: true, data: { ...p, modelsJson: JSON.stringify(p.models || [], null, 2) } })}
+                            onClick={() => {
+                                // 提取第一个模型作为 modelName 显示
+                                const firstModel = p.models && p.models.length > 0 ? p.models[0].id : ''
+                                setProviderModal({ show: true, data: { ...p, modelName: firstModel } })
+                            }}
                             className="px-3 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors text-sm"
                         >
                             编辑
@@ -713,14 +720,15 @@ export default function Admin() {
                           />
                       </div>
                       <div>
-                          <label className="block text-sm text-gray-400 mb-1">支持的模型列表 (JSON 格式)</label>
-                          <textarea 
-                            value={providerModal.data.modelsJson || ''}
-                            onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, modelsJson: e.target.value } })}
-                            className="w-full bg-black/20 border border-white/10 rounded p-2 text-white font-mono text-xs h-32"
-                            placeholder='[{"id":"dall-e-3","name":"DALL-E 3","price":1}]'
+                          <label className="block text-sm text-gray-400 mb-1">模型名称</label>
+                          <input 
+                            type="text" 
+                            value={providerModal.data.modelName || ''}
+                            onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, modelName: e.target.value } })}
+                            className="w-full bg-black/20 border border-white/10 rounded p-2 text-white"
+                            placeholder="例如：gemini-3-pro, dall-e-3"
                           />
-                          <p className="text-xs text-gray-500 mt-1">格式: Array of &#123; id, name, price &#125;</p>
+                          <p className="text-xs text-gray-500 mt-1">每个供应商配置一个默认模型</p>
                       </div>
                       <button 
                         onClick={handleSaveProvider}

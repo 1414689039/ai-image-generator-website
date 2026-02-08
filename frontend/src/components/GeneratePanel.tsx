@@ -12,23 +12,14 @@ interface GeneratePanelProps {
   } | null
 }
 
-interface Model {
-  id: string
-  name: string
-  price: number
-}
-
 const ASPECT_RATIOS = [
   '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'
 ]
 
 export default function GeneratePanel({ onGenerate, initialData }: GeneratePanelProps) {
-  const [models, setModels] = useState<Model[]>([
-    { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro', price: 1.0 },
-  ])
+  const [model, setModel] = useState('gemini-3-pro-image-preview')
   
   const [prompt, setPrompt] = useState('')
-  const [model, setModel] = useState('gemini-3-pro-image-preview')
   const [referenceImages, setReferenceImages] = useState<string[]>([])
   
   const [aspectRatio, setAspectRatio] = useState('1:1')
@@ -57,16 +48,12 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
                 price_4k: parseFloat(res.data.config.price_4k) || 6
             })
 
-            // 加载模型列表
+            // 加载模型列表 (只取第一个模型作为默认值)
             if (res.data.config.provider_models) {
                 try {
                     const parsedModels = JSON.parse(res.data.config.provider_models)
                     if (Array.isArray(parsedModels) && parsedModels.length > 0) {
-                        setModels(parsedModels)
-                        // 如果当前选中的模型不在列表中，默认选中第一个
-                        if (!parsedModels.find((m: any) => m.id === model)) {
-                            setModel(parsedModels[0].id)
-                        }
+                        setModel(parsedModels[0].id)
                     }
                 } catch (e) {
                     console.error('Failed to parse provider models:', e)
@@ -132,8 +119,8 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
     <div className="flex flex-col h-full bg-transparent text-white p-4 overflow-y-auto scrollbar-hide">
       
       <div className="space-y-6 pr-2 mt-4">
-        {/* 模型选择 */}
-        <div className="space-y-2">
+        {/* 模型选择 (已隐藏) */}
+        {/* <div className="space-y-2">
             <label className="text-xs font-medium text-gray-400">模型</label>
             <div className="relative">
                 <select
@@ -142,15 +129,13 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
                     disabled
                     className="w-full bg-white/5 border border-white/10 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 appearance-none backdrop-blur-md cursor-not-allowed opacity-70 transition-all"
                 >
-                    {models.map((m) => (
-                        <option key={m.id} value={m.id} className="bg-[#1e1e1e]">{m.name}</option>
-                    ))}
+                    <option value={model} className="bg-[#1e1e1e]">{model}</option>
                 </select>
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                     <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                 </div>
             </div>
-        </div>
+        </div> */}
 
         {/* 上传参考图 */}
         <div className="space-y-2">
