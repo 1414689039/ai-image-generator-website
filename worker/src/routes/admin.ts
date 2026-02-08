@@ -405,6 +405,33 @@ adminRoutes.get('/config', async (c: AuthContext) => {
         configs.forEach(cfg => {
             configMap[cfg.key] = cfg.value
         })
+
+        // 兼容性处理：如果 providers_list 不存在，但存在旧版 api_gateway_key，则构造默认列表
+        if (!configMap['providers_list'] && configMap['api_gateway_key']) {
+            let models = []
+            try {
+                if (configMap['provider_models']) {
+                    models = JSON.parse(configMap['provider_models'])
+                } else {
+                    // 默认模型
+                    models = [{ id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro', price: 1.0 }]
+                }
+            } catch (e) {
+                models = []
+            }
+
+            const defaultProvider = {
+                id: 'legacy-default',
+                name: 'Default Provider (Current)',
+                type: configMap['provider_type'] || 'nano-banana',
+                baseUrl: configMap['api_gateway_url'] || 'https://api.apimart.ai',
+                apiKey: configMap['api_gateway_key'],
+                active: true,
+                models: models
+            }
+            configMap['providers_list'] = JSON.stringify([defaultProvider])
+        }
+
         return c.json({ config: configMap }) // 统一包装在 config 字段中
     } catch (e: any) {
         return c.json({ error: '获取配置失败', message: e.message }, 500)
