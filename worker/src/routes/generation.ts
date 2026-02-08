@@ -960,8 +960,9 @@ async function callNanoBananaAPI(params: {
       }
     }
     
-    console.log(`[API Debug] Calling ${endpoint} with model ${params.model}`)
-    console.log(`[API Debug] Request Body:`, JSON.stringify(requestBody, null, 2))
+    // console.log(`[API Debug] Calling ${endpoint} with model ${params.model}`)
+    // console.log(`[API Debug] Request Body:`, JSON.stringify(requestBody, null, 2))
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Calling ${endpoint}`, { model: params.model, body: requestBody })
     
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -973,11 +974,12 @@ async function callNanoBananaAPI(params: {
       signal: AbortSignal.timeout(180000) // 180秒超时
     })
     
-    console.log(`[API Debug] Response Status: ${response.status}`)
+    // console.log(`[API Debug] Response Status: ${response.status}`)
 
     if (!response.ok) {
         const errorText = await response.text()
-        console.log(`[API Debug] Error Response: ${errorText}`)
+        // console.log(`[API Debug] Error Response: ${errorText}`)
+        if (params.db) await logSystem(params.db, 'ERROR', 'API_DEBUG', `API Submit Failed: ${response.status}`, errorText)
         let errorMessage = `API Status: ${response.status}`
         try {
           const errorJson = JSON.parse(errorText)
@@ -993,7 +995,8 @@ async function callNanoBananaAPI(params: {
     }
 
     const data: any = await response.json()
-    console.log(`[API Debug] Success Response:`, JSON.stringify(data, null, 2))
+    // console.log(`[API Debug] Success Response:`, JSON.stringify(data, null, 2))
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Submit Response`, data)
     // 解析 Chat Completion 响应中的图片链接
     // 假设图片链接在 content 中，可能是 markdown 格式 ![image](url) 或直接是 url
     const content = data.choices?.[0]?.message?.content || ''
