@@ -1,6 +1,7 @@
 import { Loader2, AlertCircle, RotateCw, WifiOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import apiClient from '../api/client'
+import { getOptimizedImageSrc } from '../utils/image'
 
 interface HistoryPanelProps {
   history: any[]
@@ -45,27 +46,35 @@ export default function HistoryPanel({ history, onSelect, onRefresh, viewMode = 
     const pendingItems = history.filter(item => item.status === 'pending' && !item.isTemp)
     
     if (pendingItems.length > 0) {
-      let intervalTime = 3000 // 初始间隔 3s
+      let intervalTime = 1000 // 初始间隔 1s，更积极的查询
       let timer: any = null
+      let isUnmounted = false
 
       const runCheck = async () => {
+        if (isUnmounted) return
+        
         try {
             await Promise.all(pendingItems.map(item => checkStatus(item)))
-            onRefresh?.()
+            if (!isUnmounted) onRefresh?.()
         } catch (error) {
             console.error('Auto check status failed:', error)
         }
         
         // 动态调整下一次轮询时间 (简单退避策略)
-        // 每次增加 1s，最大 10s
-        intervalTime = Math.min(intervalTime + 1000, 10000)
-        timer = setTimeout(runCheck, intervalTime)
+        // 每次增加 500ms，最大 5s
+        if (!isUnmounted) {
+            intervalTime = Math.min(intervalTime + 500, 5000)
+            timer = setTimeout(runCheck, intervalTime)
+        }
       }
 
       // 立即启动第一次
       timer = setTimeout(runCheck, intervalTime)
       
-      return () => clearTimeout(timer)
+      return () => {
+          isUnmounted = true
+          clearTimeout(timer)
+      }
     }
   }, [history, onRefresh])
 
@@ -129,7 +138,7 @@ export default function HistoryPanel({ history, onSelect, onRefresh, viewMode = 
                                 {item.status === 'completed' && item.result_urls?.[0] ? (
                                     <>
                                         <img 
-                                            src={item.result_urls[0]} 
+                                            src={getOptimizedImageSrc(item.result_urls[0])} 
                                             alt="History" 
                                             className="w-full h-auto object-cover"
                                             loading="lazy"
@@ -201,7 +210,7 @@ export default function HistoryPanel({ history, onSelect, onRefresh, viewMode = 
                 {item.status === 'completed' && item.result_urls?.[0] ? (
                     <div className="w-full h-full bg-[#1e1e1e] flex items-center justify-center">
                         <img 
-                            src={item.result_urls[0]} 
+                            src={getOptimizedImageSrc(item.result_urls[0])} 
                             alt="thumb" 
                             className="w-full h-full object-cover" 
                         />

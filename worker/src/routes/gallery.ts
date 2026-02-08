@@ -12,7 +12,7 @@ galleryRoutes.get('/list', async (c) => {
   const filter = c.req.query('filter')
   const sort = c.req.query('sort') // 'latest' | 'popular'
   const user = c.get('user')
-  const userId = user?.id
+  const userId = user?.userId
 
   const db = c.env.DB
 
@@ -22,7 +22,8 @@ galleryRoutes.get('/list', async (c) => {
   // 筛选逻辑
   if (filter === 'my') {
       if (!userId) return c.json({ error: 'Unauthorized' }, 401)
-      whereClause += " AND g.user_id = ?"
+      // 只显示我分享的 (is_public = 1)
+      whereClause += " AND g.user_id = ? AND g.is_public = 1"
       params.push(userId)
   } else {
       // 公共画廊只显示公开的
@@ -90,12 +91,12 @@ galleryRoutes.post('/:id/like', async (c: AuthContext) => {
     const db = c.env.DB
 
     // 检查是否已点赞
-    const existing = await queryOne(db, 'SELECT id FROM gallery_likes WHERE user_id = ? AND generation_id = ?', [user.id, generationId])
+    const existing = await queryOne(db, 'SELECT id FROM gallery_likes WHERE user_id = ? AND generation_id = ?', [user.userId, generationId])
     
     if (existing) {
-        await execute(db, 'DELETE FROM gallery_likes WHERE user_id = ? AND generation_id = ?', [user.id, generationId])
+        await execute(db, 'DELETE FROM gallery_likes WHERE user_id = ? AND generation_id = ?', [user.userId, generationId])
     } else {
-        await execute(db, 'INSERT INTO gallery_likes (user_id, generation_id) VALUES (?, ?)', [user.id, generationId])
+        await execute(db, 'INSERT INTO gallery_likes (user_id, generation_id) VALUES (?, ?)', [user.userId, generationId])
     }
 
     // 返回最新点赞数
@@ -117,25 +118,25 @@ galleryRoutes.post('/unlock', async (c: AuthContext) => {
     if (!gen) return c.json({ error: 'Image not found' }, 404)
 
     // 检查是否已解锁
-    const existing = await queryOne(db, 'SELECT id FROM gallery_unlocks WHERE user_id = ? AND generation_id = ?', [user.id, generationId])
-    if (existing || gen.user_id === user.id) {
+    const existing = await queryOne(db, 'SELECT id FROM gallery_unlocks WHERE user_id = ? AND generation_id = ?', [user.userId, generationId])
+    if (existing || gen.user_id === user.userId) {
         return c.json({ success: true, prompt: gen.prompt })
     }
 
     // 检查积分
-    const currentUser = await queryOne<{points: number}>(db, 'SELECT points FROM users WHERE id = ?', [user.id])
+    const currentUser = await queryOne<{points: number}>(db, 'SELECT points FROM users WHERE id = ?', [user.userId])
     if (!currentUser || currentUser.points < gen.price) {
         return c.json({ error: '积分不足' }, 400)
     }
 
     // 扣除积分并记录解锁
     // 注意：这里应该使用事务，但 D1 的事务支持有限，简单起见分步执行
-    await execute(db, 'UPDATE users SET points = points - ? WHERE id = ?', [gen.price, user.id])
+    await execute(db, 'UPDATE users SET points = points - ? WHERE id = ?', [gen.price, user.userId])
     
     // 增加作者积分 (可选：比如给作者分成)
     // await execute(db, 'UPDATE users SET points = points + ? WHERE id = ?', [gen.price * 0.5, gen.user_id])
 
-    await execute(db, 'INSERT INTO gallery_unlocks (user_id, generation_id, price_paid) VALUES (?, ?, ?)', [user.id, generationId, gen.price])
+    await execute(db, 'INSERT INTO gallery_unlocks (user_id, generation_id, price_paid) VALUES (?, ?, ?)', [user.userId, generationId, gen.price])
 
     return c.json({ success: true, prompt: gen.prompt })
 })
@@ -160,7 +161,7 @@ galleryRoutes.post('/share', async (c: AuthContext) => {
     const db = c.env.DB
 
     const gen = await queryOne<{user_id: number}>(db, 'SELECT user_id FROM generations WHERE id = ?', [generationId])
-    if (!gen || gen.user_id !== user.id) {
+    if (!gen || gen.user_id !== user.userId) {
         return c.json({ error: 'Permission denied' }, 403)
     }
 
@@ -178,7 +179,7 @@ galleryRoutes.delete('/:id', async (c: AuthContext) => {
     const db = c.env.DB
 
     const gen = await queryOne<{user_id: number}>(db, 'SELECT user_id FROM generations WHERE id = ?', [generationId])
-    if (!gen || gen.user_id !== user.id) {
+    if (!gen || gen.user_id !== user.userId) {
         return c.json({ error: 'Permission denied' }, 403)
     }
 

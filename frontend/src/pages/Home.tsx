@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { useGenerationStore } from '../store/generationStore'
 import GeneratePanel from '../components/GeneratePanel'
 import PreviewArea from '../components/PreviewArea'
 import HistoryPanel from '../components/HistoryPanel'
@@ -11,7 +12,14 @@ export default function Home() {
   const location = useLocation()
   const initialData = location.state?.autofill
   const { fetchUserInfo } = useAuthStore()
-  const [generationHistory, setGenerationHistory] = useState<any[]>([])
+  const { 
+    history: generationHistory, 
+    setHistory: setGenerationHistory,
+    isLoaded,
+    setIsLoaded,
+    lastFetchTime,
+    setLastFetchTime
+  } = useGenerationStore()
   const [previewImages, setPreviewImages] = useState<string[]>([])
   const [selectedGenerationId, setSelectedGenerationId] = useState<number | null>(null)
   
@@ -23,10 +31,19 @@ export default function Home() {
     loadHistory()
   }, [])
 
-  const loadHistory = async () => {
+  const loadHistory = async (force: boolean = false) => {
+    // 缓存策略：如果已加载且距离上次加载小于 10 秒，且非强制刷新，则跳过
+    // 这样可以避免在 Tab 切换时频繁请求导致的闪烁
+    const now = Date.now()
+    if (!force && isLoaded && (now - lastFetchTime < 10000)) {
+        return
+    }
+
     try {
       const response = await apiClient.get('/generation/history?limit=20')
       setGenerationHistory(response.data.generations || [])
+      setIsLoaded(true)
+      setLastFetchTime(now)
       // 刷新用户信息以同步积分（特别是任务完成或失败退款后）
       fetchUserInfo()
     } catch (error) {
@@ -109,7 +126,7 @@ export default function Home() {
       const response = await apiClient.post('/generation/create', generationData)
       
       // 请求成功后，刷新列表以获取真实数据（这将替换掉临时项）
-      loadHistory()
+      loadHistory(true)
       fetchUserInfo()
       
       if (response.data.generationIds && response.data.generationIds.length > 0) {
@@ -164,7 +181,7 @@ export default function Home() {
                     // 选择后跳转预览
                     setActiveTab('preview')
                 }}
-                onRefresh={loadHistory}
+                onRefresh={() => loadHistory(true)}
                 viewMode="full"
             />
           </div>
@@ -236,7 +253,7 @@ export default function Home() {
                 <HistoryPanel 
                   history={generationHistory} 
                   onSelect={handleItemSelect}
-                  onRefresh={loadHistory} 
+                  onRefresh={() => loadHistory(true)} 
                 />
             </div>
         </div>

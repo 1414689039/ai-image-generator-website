@@ -313,23 +313,27 @@ generationRoutes.post('/create', async (c: AuthContext) => {
                   await logSystem(db, 'ERROR', 'GENERATION_FAIL', `Task ${generationId} failed`, errorMessage)
 
                   // 更新失败状态
-                  await execute(
+                  // 使用 CAS (Compare And Swap) 机制防止并发重复退款
+                  const updateResult = await execute(
                     db,
-                    `UPDATE generations SET status = 'failed', error_message = ? WHERE id = ?`,
+                    `UPDATE generations SET status = 'failed', error_message = ? WHERE id = ? AND status = 'pending'`,
                     [errorMessage.substring(0, 255), generationId]
                   )
                   
-                  // 单个任务失败退款 (退还单张成本)
-                  const singleCost = pointsCost / quantity
-                  await addPoints(
-                    db,
-                    user.userId,
-                    singleCost,
-                    `生成失败退款: ${generationId}`,
-                    undefined,
-                    generationId,
-                    'refund'
-                  )
+                  // 只有成功更新状态（意味着抢到了锁）才执行退款
+                  if (updateResult.success && updateResult.meta.changes > 0) {
+                      // 单个任务失败退款 (退还单张成本)
+                      const singleCost = pointsCost / quantity
+                      await addPoints(
+                        db,
+                        user.userId,
+                        singleCost,
+                        `生成失败退款: ${generationId}`,
+                        undefined,
+                        generationId,
+                        'refund'
+                      )
+                  }
               }
           })
           
@@ -418,15 +422,15 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
         if (task.status === 'pending' && diffMs > TIMEOUT_MS) {
              console.log(`Task ${generationId} timed out. Created at: ${task.created_at}, Now: ${now.toISOString()}`)
              
-             // 标记为失败
-             await execute(
+             // 标记为失败 (CAS)
+             const updateResult = await execute(
                  db, 
-                 `UPDATE generations SET status = 'failed', error_message = ? WHERE id = ?`,
+                 `UPDATE generations SET status = 'failed', error_message = ? WHERE id = ? AND status = 'pending'`,
                  ['任务执行超时', generationId]
              )
              
-             // 退款
-             if (task.points_cost > 0) {
+             // 退款 (仅当成功更新状态时)
+             if (updateResult.success && updateResult.meta.changes > 0 && task.points_cost > 0) {
                  try {
                     await addPoints(
                         db,
@@ -463,6 +467,24 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
         // 假设是 Gemini 3 Pro 格式 (Apimart)
         const cleanBaseUrl = baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
         
+        // 检查是否是 ZX2 异步任务
+        // 由于 providerType 没有存在 generations 表里，我们这里通过 api_task_id 格式简单判断
+        // 或者需要从 system_configs 再读一次 providerType (不准确，可能变了)
+        // 最好的办法是查询时再读一次配置
+        
+        let currentProviderType = 'nano-banana'
+        try {
+            const configs = await query<{key: string, value: string}>(
+                db, 
+                "SELECT key, value FROM system_configs WHERE key = 'provider_type'"
+            )
+            if (configs.length > 0) currentProviderType = configs[0].value
+        } catch (e) {
+            console.warn('Failed to load provider_type in check route', e)
+        }
+
+        const isZx2Async = currentProviderType === 'zx2-async'
+        
         let taskIds: string[] = []
         try {
             if (task.api_task_id.startsWith('[')) {
@@ -475,6 +497,67 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
         }
 
         const checkPromises = taskIds.map(async (tid) => {
+            // ZX2 异步查询逻辑
+            if (isZx2Async) {
+                // 同样处理 Base URL，去除末尾可能存在的 /api
+                const zx2BaseUrl = cleanBaseUrl.replace(/\/api$/, '')
+                const queryUrl = `${zx2BaseUrl}/api/result`
+                
+                try {
+                    const res = await fetch(queryUrl, {
+                        method: 'POST',
+                        headers: { 
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ id: tid })
+                    })
+                    
+                    if (!res.ok) {
+                         const errorText = await res.text()
+                         console.error(`Check status failed for ${tid}: ${res.status} ${errorText}`)
+                         if (res.status >= 400 && res.status < 500) {
+                             return { status: 'failed', error: `API Error ${res.status}` }
+                         }
+                         return null
+                    }
+                    
+                    const data: any = await res.json()
+                    // ZX2 响应格式未知，假设 data.data.status 或 data.data.url
+                    // 根据文档: "生成的图片 务必及时保存"
+                    // 猜测成功时返回 { code: 0, data: { status: "success", url: "..." } } 
+                    // 或者直接 { code: 0, data: { url: "..." } }
+                    
+                    if (data.code !== 0) {
+                        // 可能是还在处理中? 文档没说 code!=0 是处理中还是失败
+                        // 通常 code != 0 是错误
+                        // 但如果正在处理，可能返回特定 code
+                        // 暂时假设 code != 0 且 msg 包含 "processing" 是处理中
+                        // 修正：增加中文关键词支持 "生成中", "稍后"
+                        const msg = (data.msg || '').toLowerCase()
+                        if (msg.includes('processing') || msg.includes('pending') || msg.includes('queue') || msg.includes('生成中') || msg.includes('稍后')) {
+                            return { status: 'pending', progress: 50 }
+                        }
+                        return { status: 'failed', error: data.msg || 'Unknown error' }
+                    }
+                    
+                    // 成功
+                    // 修正：ZX2 成功时直接在根对象返回 url，或者在 data.url
+                    const imgUrl = data.url || data.data?.url || data.data?.image_url || data.data?.images?.[0]
+                    if (imgUrl) {
+                        return { status: 'success', progress: 100, images: [imgUrl] }
+                    }
+                    
+                    // 如果没有 url，可能是还在处理?
+                    // 这是一个不确定的地方，先假设没有 url 就是 pending
+                    return { status: 'pending', progress: 50 }
+                    
+                } catch (e) {
+                    console.error(`ZX2 Check error for ${tid}:`, e)
+                    return null
+                }
+            }
+
             const queryUrl = `${cleanBaseUrl}/v1/tasks/${tid}`
             try {
                 const res = await fetch(queryUrl, {
@@ -589,32 +672,34 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
         }
         
         if (failedCount === taskIds.length) {
-             // 全部失败
-             await execute(
+             // 全部失败 (CAS)
+             const updateResult = await execute(
                  db, 
-                 `UPDATE generations SET status = 'failed', error_message = ? WHERE id = ?`,
+                 `UPDATE generations SET status = 'failed', error_message = ? WHERE id = ? AND status = 'pending'`,
                  [JSON.stringify(firstError).substring(0, 255), generationId]
              )
-             // 触发退款
-             try {
-                const taskInfo = await queryOne<{ points_cost: number }>(
-                    db,
-                    'SELECT points_cost FROM generations WHERE id = ?',
-                    [generationId]
-                )
-                if (taskInfo && taskInfo.points_cost > 0) {
-                    await addPoints(
+             // 触发退款 (仅当成功更新状态时)
+             if (updateResult.success && updateResult.meta.changes > 0) {
+                 try {
+                    const taskInfo = await queryOne<{ points_cost: number }>(
                         db,
-                        user.userId,
-                        taskInfo.points_cost,
-                        `生成失败退款: ${generationId}`,
-                        undefined,
-                        Number(generationId),
-                        'refund'
+                        'SELECT points_cost FROM generations WHERE id = ?',
+                        [generationId]
                     )
-                }
-             } catch (refundError) {
-                 console.error('Refund failed during check:', refundError)
+                    if (taskInfo && taskInfo.points_cost > 0) {
+                        await addPoints(
+                            db,
+                            user.userId,
+                            taskInfo.points_cost,
+                            `生成失败退款: ${generationId}`,
+                            undefined,
+                            Number(generationId),
+                            'refund'
+                        )
+                    }
+                 } catch (refundError) {
+                     console.error('Refund failed during check:', refundError)
+                 }
              }
              return c.json({ status: 'failed', error: firstError })
         }
@@ -771,6 +856,12 @@ async function callNanoBananaAPI(params: {
   // 智能处理 Base URL：去除末尾斜杠，并去除末尾的 /v1 (防止重复拼接)
   const cleanBaseUrl = baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
   const providerType = params.providerType || 'nano-banana'
+
+  // 处理 API Key：去除首尾空格，去除可能的 "Bearer " 前缀（防止用户误填）
+  let finalApiKey = params.apiKey.trim()
+  if (finalApiKey.toLowerCase().startsWith('bearer ')) {
+      finalApiKey = finalApiKey.substring(7).trim()
+  }
   
   // 判断是否使用 Gemini 2.5 系列模型（需走 Chat Completions 接口）
   // 仅在 providerType 为 nano-banana 时生效
@@ -783,6 +874,101 @@ async function callNanoBananaAPI(params: {
   // 仅在 providerType 为 nano-banana 时生效 (Apimart 专用)
   const isGemini3Pro = providerType === 'nano-banana' && params.model.includes('gemini-3-pro')
   
+  // 3. ZX2 异步轮询处理逻辑 (新增)
+  const isZx2Async = providerType === 'zx2-async'
+  if (isZx2Async) {
+    // 针对 ZX2，确保 BaseURL 不包含 /api 或 /v1，避免拼接错误
+    // 用户可能填 http://zx2.52youxi.cc/api 或 http://zx2.52youxi.cc/v1
+    const zx2BaseUrl = cleanBaseUrl.replace(/\/api$/, '')
+    const endpoint = `${zx2BaseUrl}/api/generate`
+
+    // 优先使用传入的 size 参数，否则通过宽高计算
+    let aspectRatio = params.size
+    
+    if (!aspectRatio || !aspectRatio.includes(':')) {
+        // 计算宽高比字符串
+        const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
+        const divisor = gcd(params.width, params.height)
+        aspectRatio = `${params.width / divisor}:${params.height / divisor}`
+    }
+    
+    // 映射到标准比例 (保持原有逻辑)
+    const ratioMap: Record<string, string> = {
+      '1:1': '1:1', '4:3': '4:3', '3:4': '3:4', '16:9': '16:9', '9:16': '9:16',
+      '2:3': '2:3', '3:2': '3:2', '4:5': '4:5', '5:4': '5:4', '21:9': '21:9',
+      '1024:768': '4:3', '768:1024': '3:4', '1920:1080': '16:9', '1080:1920': '9:16'
+    }
+    if (ratioMap[aspectRatio]) {
+      aspectRatio = ratioMap[aspectRatio]
+    }
+
+    // 分辨率处理 (文档要求必须大写: 1K, 2K, 4K)
+    let imageSize = (params.resolution || '1K').toUpperCase()
+    
+    const requestBody: any = {
+      model: 'nano-banana-pro', // 固定值
+      prompt: params.prompt,
+      aspectRatio: aspectRatio,
+      imageSize: imageSize,
+      urls: []
+    }
+
+    // 处理参考图
+    if (params.referenceImageBase64) {
+        // 优先使用 Base64
+        let imageUrl = params.referenceImageBase64
+        if (!imageUrl.startsWith('data:image')) {
+            imageUrl = `data:image/jpeg;base64,${imageUrl}`
+        }
+        // ZX2 可能不支持 Base64 URL，但既然是 urls 字段，我们尝试放进去
+        // 建议：如果ZX2只支持http链接，这里可能需要上传到 R2 后给公开链接
+        // 目前先兼容 Base64
+        requestBody.urls = [imageUrl]
+    } else if (params.referenceImageUrl && params.referenceImageUrl.startsWith('http')) {
+        requestBody.urls = [params.referenceImageUrl]
+    }
+
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Calling ${endpoint}`, { model: params.model, body: requestBody })
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${finalApiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(30000)
+    })
+
+    if (!response.ok) {
+        const errorText = await response.text()
+        if (params.db) await logSystem(params.db, 'ERROR', 'API_DEBUG', `API Submit Failed: ${response.status}`, { error: errorText, keyPrefix: params.apiKey.substring(0, 5) + '...' })
+        
+        // 针对 ZX2 404 错误的专门提示
+        if (response.status === 404 && errorText.includes('Invalid URL')) {
+             throw new Error(`API路径不支持 (/api/generate)。检测到您使用的是 NewAPI/OneAPI 站点 (如 zx2.52youxi.cc)，请在后台将供应商类型修改为 "Nano Banana" 或 "OpenAI"，它们使用标准的 /v1 接口。`)
+        }
+
+        throw new Error(`API提交失败: ${response.status} ${errorText.substring(0, 100)}`)
+    }
+
+    const data: any = await response.json()
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Submit Response`, data)
+    
+    if (data.code !== 0) {
+        throw new Error(`API错误: ${data.msg || JSON.stringify(data)}`)
+    }
+
+    const taskId = data.data?.id
+    if (!taskId) {
+        throw new Error('未返回任务ID')
+    }
+
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Task ID: ${taskId}, initial submit success.`)
+    
+    return { images: [], taskId, status: 'pending' }
+  }
+
   // 1. Gemini 3 Pro 处理逻辑 (新接口，异步轮询)
   if (isGemini3Pro) {
     const endpoint = `${cleanBaseUrl}/v1/images/generations`
@@ -790,7 +976,7 @@ async function callNanoBananaAPI(params: {
     // 优先使用传入的 size 参数，否则通过宽高计算
     let aspectRatio = params.size
     
-    if (!aspectRatio) {
+    if (!aspectRatio || !aspectRatio.includes(':')) {
         // 计算宽高比字符串
         const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
         const divisor = gcd(params.width, params.height)
@@ -847,7 +1033,7 @@ async function callNanoBananaAPI(params: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${params.apiKey}`,
+        'Authorization': `Bearer ${finalApiKey}`,
       },
       body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(30000) // 提交任务超时较短
@@ -863,12 +1049,22 @@ async function callNanoBananaAPI(params: {
     // console.log(`[API Debug] Submit Response:`, JSON.stringify(data, null, 2))
     if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Submit Response`, data)
     
+    // 优先检查是否直接返回了图片 (同步模式兼容)
+    if (data.data && Array.isArray(data.data) && data.data.length > 0 && (data.data[0].url || data.data[0].image_url)) {
+        const images = data.data.map((item: any) => item.url || item.image_url).filter((url: string) => !!url)
+        if (images.length > 0) {
+             if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Sync response received`, { images })
+             return { images, status: 'completed' }
+        }
+    }
+
     // 获取 Task ID
     // 兼容两种格式：直接在 data.data[0].task_id 或直接在 data.task_id
     const taskId = data.data?.[0]?.task_id || data.task_id
 
     if (!taskId) {
-        throw new Error('未返回任务ID')
+        // 如果没有 task_id 也没有图片，抛出详细错误
+        throw new Error(`API返回格式无法识别: 未找到 task_id 或 images。响应数据: ${JSON.stringify(data).substring(0, 200)}`)
     }
 
     // 开始轮询
@@ -888,42 +1084,39 @@ async function callNanoBananaAPI(params: {
     const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
     const divisor = gcd(params.width, params.height)
     // 优先使用 params.size，否则通过宽高计算
-    let aspectRatio = params.size || `${params.width / divisor}:${params.height / divisor}`
+    let aspectRatio = params.size
     
-    // 映射到标准比例
+    // 如果没有 size，或者 size 是旧版默认的 "1024x1024" 这种格式（不含冒号），则重新计算
+    if (!aspectRatio || !aspectRatio.includes(':')) {
+         aspectRatio = `${params.width / divisor}:${params.height / divisor}`
+    }
+    
+    // 映射到标准比例 (保持原有逻辑)
+    // 根据 API 文档，OpenAI 格式下的 imageConfig 需要标准比例字符串
     const ratioMap: Record<string, string> = {
       '1:1': '1:1',
       '4:3': '4:3',
       '3:4': '3:4',
       '16:9': '16:9',
       '9:16': '9:16',
-      '2:3': '2:3', 
-      '3:2': '3:2', 
-      '4:5': '4:5', 
-      '5:4': '5:4', 
-      '21:9': '21:9',
-      // 近似值映射
-      '1024:768': '4:3',
-      '768:1024': '3:4',
-      '1920:1080': '16:9',
-      '1080:1920': '9:16'
+      // 部分模型可能不支持非标比例，这里尽量归一化
+      '2:3': '2:3', '3:2': '3:2', '4:5': '4:5', '5:4': '5:4', '21:9': '21:9',
+      '1024:768': '4:3', '768:1024': '3:4', '1920:1080': '16:9', '1080:1920': '9:16'
     }
-    // 如果不在标准列表中，默认使用最接近的或保持原样
     if (ratioMap[aspectRatio]) {
       aspectRatio = ratioMap[aspectRatio]
     }
-    
+
     // 构建消息体
     const messages: any[] = []
     
-    // 如果是 gemini-2.5-flash-image 或 nano-banana 或 gemini-3-pro，支持通过 system message 设置宽高比
-    // 同时也对 openai-chat 类型启用此功能，以防万一
-    if (params.model === 'gemini-2.5-flash-image' || params.model.includes('nano-banana') || params.model.includes('gemini-3-pro') || providerType === 'openai-chat') {
-       messages.push({
-         role: 'system',
-         content: JSON.stringify({ imageConfig: { aspectRatio } })
-       })
-    }
+    // 关键修正：对于 NewAPI/OneAPI 转接的 Google Gemini 格式，
+    // 需要通过 system prompt 传递 imageConfig (aspectRatio)
+    // 同时也对 openai-chat 类型启用此功能
+    messages.push({
+        role: 'system',
+        content: JSON.stringify({ imageConfig: { aspectRatio: aspectRatio } })
+    })
     
     // 构建用户消息
     const userContent: any[] = []
@@ -975,10 +1168,11 @@ async function callNanoBananaAPI(params: {
     }
     
     // gemini-2.5-flash-image 支持 extra_body 配置宽高比
+    // 根据 NewAPI 文档，这部分也是需要的，双重保险
     if (params.model === 'gemini-2.5-flash-image' || params.model.includes('nano-banana') || params.model.includes('gemini-3-pro') || providerType === 'openai-chat') {
       requestBody.extra_body = {
         imageConfig: {
-          aspectRatio
+          aspectRatio: aspectRatio
         }
       }
     }
@@ -991,7 +1185,8 @@ async function callNanoBananaAPI(params: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${params.apiKey}`,
+        'Authorization': `Bearer ${finalApiKey}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       },
       body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(180000) // 180秒超时
@@ -1088,7 +1283,8 @@ async function callNanoBananaAPI(params: {
         method: 'POST',
         headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${params.apiKey}`,
+        'Authorization': `Bearer ${finalApiKey}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         },
         body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(180000) // 180秒超时

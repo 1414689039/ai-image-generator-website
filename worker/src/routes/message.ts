@@ -73,7 +73,7 @@ messageRoutes.post('/', async (c: AuthContext) => {
   const { title, content } = await c.req.json()
   const db = c.env.DB
 
-  await execute(db, 'INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)', [user.id, title, content])
+  await execute(db, 'INSERT INTO messages (user_id, title, content) VALUES (?, ?, ?)', [user.userId, title, content])
   
   return c.json({ success: true })
 })
@@ -90,7 +90,7 @@ messageRoutes.post('/:id/reply', async (c: AuthContext) => {
     await execute(
         db, 
         'INSERT INTO replies (message_id, user_id, content, is_admin_reply) VALUES (?, ?, ?, ?)', 
-        [messageId, user.id, content, user.isAdmin ? 1 : 0]
+        [messageId, user.userId, content, user.isAdmin ? 1 : 0]
     )
     
     return c.json({ success: true })
@@ -107,7 +107,7 @@ messageRoutes.delete('/:id', async (c: AuthContext) => {
     const msg = await queryOne<{user_id: number}>(db, 'SELECT user_id FROM messages WHERE id = ?', [id])
     if (!msg) return c.json({ error: 'Not found' }, 404)
 
-    if (msg.user_id !== user.id && !user.isAdmin) {
+    if (msg.user_id !== user.userId && !user.isAdmin) {
         return c.json({ error: 'Permission denied' }, 403)
     }
 
@@ -128,7 +128,7 @@ messageRoutes.delete('/reply/:id', async (c: AuthContext) => {
     const reply = await queryOne<{user_id: number}>(db, 'SELECT user_id FROM replies WHERE id = ?', [id])
     if (!reply) return c.json({ error: 'Not found' }, 404)
 
-    if (reply.user_id !== user.id && !user.isAdmin) {
+    if (reply.user_id !== user.userId && !user.isAdmin) {
         return c.json({ error: 'Permission denied' }, 403)
     }
 

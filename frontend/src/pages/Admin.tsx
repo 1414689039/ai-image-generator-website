@@ -69,7 +69,7 @@ export default function Admin() {
           setGenTotal(genRes.data.total || 0)
           break
         case 'logs':
-          const logsRes = await apiClient.get(`/admin/logs?page=${logPage}&limit=${LOG_LIMIT}`)
+          const logsRes = await apiClient.get(`/admin/logs?page=${logPage}&limit=${LOG_LIMIT}&_t=${Date.now()}`)
           setLogs(logsRes.data.logs || [])
           setLogTotal(logsRes.data.total || 0)
           break
@@ -94,8 +94,9 @@ export default function Admin() {
           }
           break
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('加载数据失败:', error)
+      alert(`加载数据失败: ${error.message}`)
     }
   }
 
@@ -289,8 +290,8 @@ export default function Admin() {
     <div className="min-h-screen bg-transparent pt-20 pb-10">
       <div className="container mx-auto px-4">
         <div className="flex items-center gap-4 mb-6">
-            <h1 className="text-3xl font-bold text-white">管理员面板</h1>
-            <span className="px-2 py-1 rounded bg-blue-600/20 text-blue-400 text-xs border border-blue-600/30">v1.3</span>
+          <h1 className="text-3xl font-bold text-white">管理员面板</h1>
+          <span className="px-2 py-1 rounded bg-blue-600/20 text-blue-400 text-xs border border-blue-600/30">v1.6</span>
         </div>
 
         {/* 标签页 */}
@@ -528,7 +529,10 @@ export default function Admin() {
             <div>
               <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold">系统日志</h2>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
+                      <span className="text-xs text-gray-500 mr-2">
+                          最后更新: {new Date().toLocaleTimeString()}
+                      </span>
                       <button 
                         onClick={loadData}
                         className="bg-white/10 text-white px-3 py-1.5 rounded text-sm hover:bg-white/20"
@@ -896,10 +900,12 @@ export default function Admin() {
                               <option value="openai">OpenAI (Standard Image API)</option>
                               <option value="openai-chat">OpenAI Chat (Generic / OneAPI)</option>
                               <option value="nano-banana">Nano Banana / Apimart</option>
+                              <option value="zx2-async">ZX2 (52youxi Async)</option>
                           </select>
                           <p className="text-xs text-gray-500 mt-1">
                               {providerModal.data.type === 'openai-chat' ? '通过对话接口(Chat Completions)调用生图模型，适用于 OneAPI/NewAPI 等中转' : 
                                providerModal.data.type === 'nano-banana' ? 'Apimart 专用优化 (Gemini 3 Pro Task 模式)' : 
+                               providerModal.data.type === 'zx2-async' ? 'ZX2 专用异步接口 (/api/generate + /api/result)' :
                                '标准 DALL-E 接口 (/v1/images/generations)。如果您使用第三方中转(NewAPI/OneAPI)调用 Gemini/Flux 等模型，请优先选择此类型。'}
                           </p>
                       </div>

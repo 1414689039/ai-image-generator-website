@@ -191,7 +191,7 @@ export default function Gallery() {
   }
 
   return (
-    <div className="min-h-screen bg-transparent text-white p-4 pb-24 md:p-8 pt-[80px]">
+    <div className="min-h-screen bg-transparent text-white px-4 md:px-8 pt-20 md:pt-32 pb-24">
       <div className="max-w-[1920px] mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 sticky top-[70px] z-30 py-4 bg-gradient-to-b from-black/80 via-black/50 to-transparent backdrop-blur-sm -mx-4 px-4 md:mx-0 md:px-0 md:bg-none md:backdrop-blur-none md:static">

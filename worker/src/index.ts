@@ -7,6 +7,7 @@ import { userRoutes } from './routes/user'
 import { adminRoutes } from './routes/admin'
 import { paymentRoutes } from './routes/payment'
 import { messageRoutes } from './routes/message'
+import { proxyRoutes } from './routes/proxy'
 import { authMiddleware } from './middleware/auth'
 import { adminMiddleware } from './middleware/admin'
 import { query, queryOne } from './utils/db'
@@ -98,7 +99,8 @@ app.use('/api/*', async (c, next) => {
     '/api/payment/notify', 
     '/api/payment/callback',
     '/api/payment/order', // 允许未登录查询订单状态（用于支付结果页）
-    '/api/config'         // 允许获取配置
+    '/api/config',        // 允许获取配置
+    '/api/proxy'          // 允许图片代理（用于前端展示 HTTP 图片）
   ]
   
   // 允许未登录查看留言板（仅GET请求）
@@ -140,6 +142,7 @@ app.route('/api/gallery', galleryRoutes)
 app.route('/api/user', userRoutes)
 app.route('/api/payment', paymentRoutes)
 app.route('/api/message', messageRoutes)
+app.route('/api/proxy', proxyRoutes)
 
 // 管理员路由
 app.use('/api/admin/*', adminMiddleware)

@@ -163,7 +163,7 @@ export default function MessageBoard() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white p-4 pb-24 md:p-8 pt-[80px]">
+    <div className="min-h-screen bg-black text-white px-4 md:px-8 pt-20 md:pt-32 pb-24">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">

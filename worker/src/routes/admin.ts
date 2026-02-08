@@ -38,8 +38,9 @@ adminRoutes.get('/logs', async (c: AuthContext) => {
       params.push(category)
     }
 
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
-    params.push(limit, offset)
+    // 回退到按时间排序，并改为直接拼接 limit/offset 以排除参数绑定问题
+    sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`
+    // params.push(limit, offset)
 
     const logs = await query<{
       id: number
@@ -48,7 +49,7 @@ adminRoutes.get('/logs', async (c: AuthContext) => {
       message: string
       details: string | null
       created_at: string
-    }>(db, sql, params)
+    }>(db, sql, params) || [] // 确保不返回 undefined
 
     // 获取总数
     let countSql = 'SELECT COUNT(*) as count FROM system_logs WHERE 1=1'
@@ -66,11 +67,26 @@ adminRoutes.get('/logs', async (c: AuthContext) => {
 
     const totalResult = await queryOne<{ count: number }>(db, countSql, countParams)
 
+    // 禁止缓存，确保日志实时刷新
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    c.header('Pragma', 'no-cache')
+    c.header('Expires', '0')
+
     return c.json({
-      logs: logs.map(l => ({
-        ...l,
-        details: l.details ? JSON.parse(l.details) : null
-      })),
+      logs: (logs || []).map(l => {
+        try {
+            return {
+                ...l,
+                details: l.details ? JSON.parse(l.details) : null
+            }
+        } catch (e) {
+            // 如果 JSON 解析失败，直接返回原始字符串作为 details
+            return {
+                ...l,
+                details: { raw: l.details, error: 'JSON Parse Failed' }
+            }
+        }
+      }),
       total: totalResult?.count || 0,
       page,
       limit,

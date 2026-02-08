@@ -9,6 +9,9 @@ interface GeneratePanelProps {
     model?: string
     aspectRatio?: string
     resolution?: string
+    quantity?: number
+    width?: number
+    height?: number
   } | null
 }
 
@@ -37,6 +40,7 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
     price_4k: 6
   })
 
+  // 监听 initialData 变化，如果是再次生成，回填参数
   useEffect(() => {
     // 加载配置
     apiClient.get('/config').then(res => {
@@ -65,8 +69,33 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
     if (initialData) {
       if (initialData.prompt) setPrompt(initialData.prompt)
       if (initialData.model) setModel(initialData.model)
-      if (initialData.aspectRatio) setAspectRatio(initialData.aspectRatio)
-      if (initialData.resolution) setResolution(initialData.resolution)
+      if (initialData.quantity) setQuantity(initialData.quantity)
+      
+      // 解析宽高比
+      if (initialData.width && initialData.height) {
+        // 计算最大公约数
+        const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
+        const divisor = gcd(initialData.width, initialData.height)
+        const ratio = `${initialData.width / divisor}:${initialData.height / divisor}`
+        
+        // 检查是否在预设列表中
+        if (ASPECT_RATIOS.includes(ratio)) {
+             setAspectRatio(ratio)
+        } else {
+             // 默认回退到 1:1
+             setAspectRatio('1:1')
+        }
+        
+        // 解析分辨率
+        const maxDim = Math.max(initialData.width, initialData.height)
+        if (maxDim >= 3000) setResolution('4K')
+        else if (maxDim >= 2000) setResolution('2K')
+        else setResolution('1K')
+      } else if (initialData.aspectRatio) {
+          setAspectRatio(initialData.aspectRatio)
+      } else if (initialData.resolution) {
+          setResolution(initialData.resolution)
+      }
     }
   }, [initialData])
   

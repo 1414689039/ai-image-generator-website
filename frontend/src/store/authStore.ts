@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import axios from 'axios'
+import { useGenerationStore } from './generationStore'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
@@ -65,6 +66,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     logout: () => {
       localStorage.removeItem('token')
       delete axios.defaults.headers.common['Authorization']
+      useGenerationStore.getState().clearHistory()
       set({ token: null, user: null, isAuthenticated: false })
     },
 
