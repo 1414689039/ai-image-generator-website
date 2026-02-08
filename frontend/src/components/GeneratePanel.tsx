@@ -18,15 +18,15 @@ interface Model {
   price: number
 }
 
-const MODELS: Model[] = [
-  { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro', price: 1.0 },
-]
-
 const ASPECT_RATIOS = [
   '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'
 ]
 
 export default function GeneratePanel({ onGenerate, initialData }: GeneratePanelProps) {
+  const [models, setModels] = useState<Model[]>([
+    { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro', price: 1.0 },
+  ])
+  
   const [prompt, setPrompt] = useState('')
   const [model, setModel] = useState('gemini-3-pro-image-preview')
   const [referenceImages, setReferenceImages] = useState<string[]>([])
@@ -47,17 +47,34 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
   })
 
   useEffect(() => {
-    // 加载定价配置
+    // 加载配置
     apiClient.get('/config').then(res => {
         if (res.data?.config) {
+            // ... pricing config ...
             setPriceConfig({
                 price_1k: parseFloat(res.data.config.price_1k) || 2,
                 price_2k: parseFloat(res.data.config.price_2k) || 4,
                 price_4k: parseFloat(res.data.config.price_4k) || 6
             })
-        }
-    }).catch(err => console.error('Failed to load pricing:', err))
 
+            // 加载模型列表
+            if (res.data.config.provider_models) {
+                try {
+                    const parsedModels = JSON.parse(res.data.config.provider_models)
+                    if (Array.isArray(parsedModels) && parsedModels.length > 0) {
+                        setModels(parsedModels)
+                        // 如果当前选中的模型不在列表中，默认选中第一个
+                        if (!parsedModels.find((m: any) => m.id === model)) {
+                            setModel(parsedModels[0].id)
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to parse provider models:', e)
+                }
+            }
+        }
+    }).catch(err => console.error('Failed to load config:', err))
+    
     if (initialData) {
       if (initialData.prompt) setPrompt(initialData.prompt)
       if (initialData.model) setModel(initialData.model)
@@ -125,7 +142,7 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
                     disabled
                     className="w-full bg-white/5 border border-white/10 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 appearance-none backdrop-blur-md cursor-not-allowed opacity-70 transition-all"
                 >
-                    {MODELS.map((m) => (
+                    {models.map((m) => (
                         <option key={m.id} value={m.id} className="bg-[#1e1e1e]">{m.name}</option>
                     ))}
                 </select>

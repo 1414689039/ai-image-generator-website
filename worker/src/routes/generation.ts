@@ -135,11 +135,12 @@ generationRoutes.post('/create', async (c: AuthContext) => {
     // API配置
     let dynamicApiUrl = c.env.NANO_BANANA_API_URL
     let dynamicApiKey = c.env.NANO_BANANA_API_KEY
+    let providerType = 'nano-banana' // 默认保持原有行为
 
     try {
         const configs = await query<{key: string, value: string}>(
             db, 
-            "SELECT key, value FROM system_configs WHERE key IN ('price_1k', 'price_2k', 'price_4k', 'api_gateway_url', 'api_gateway_key')"
+            "SELECT key, value FROM system_configs WHERE key IN ('price_1k', 'price_2k', 'price_4k', 'api_gateway_url', 'api_gateway_key', 'provider_type')"
         )
         configs.forEach(cfg => {
             if (cfg.key === 'price_1k') price1k = parseFloat(cfg.value)
@@ -147,6 +148,7 @@ generationRoutes.post('/create', async (c: AuthContext) => {
             if (cfg.key === 'price_4k') price4k = parseFloat(cfg.value)
             if (cfg.key === 'api_gateway_url' && cfg.value) dynamicApiUrl = cfg.value
             if (cfg.key === 'api_gateway_key' && cfg.value) dynamicApiKey = cfg.value
+            if (cfg.key === 'provider_type' && cfg.value) providerType = cfg.value
         })
     } catch (e) {
         // 如果表不存在（尚未迁移），使用默认值，不报错
@@ -252,6 +254,7 @@ generationRoutes.post('/create', async (c: AuthContext) => {
                   const apiResponse = await callNanoBananaAPI({
                     apiKey,
                     apiUrl: dynamicApiUrl,
+                    providerType, // 传递 providerType
                     type,
                     prompt,
                     referenceImageUrl: mainReferenceImageUrl, // 兼容旧接口
@@ -726,26 +729,30 @@ generationRoutes.get('/history', async (c: AuthContext) => {
 async function callNanoBananaAPI(params: {
   apiKey: string
   apiUrl?: string
+  providerType?: string // 新增
   type: string
   prompt: string
   referenceImageUrl?: string | null
-  referenceImageBase64?: string // 新增：支持直接传递 Base64
+  referenceImageBase64?: string
   model: string
   width: number
   height: number
   quality: string
   quantity: number
-  size?: string // 新增
-  resolution?: string // 新增
+  size?: string
+  resolution?: string
 }): Promise<{ images: string[]; taskId?: string; status?: string }> {
   const baseUrl = params.apiUrl || 'https://api.apimart.ai'
   const cleanBaseUrl = baseUrl.replace(/\/$/, '')
+  const providerType = params.providerType || 'nano-banana'
   
   // 判断是否使用 Gemini 2.5 系列模型（需走 Chat Completions 接口）
-  const isGeminiChatModel = params.model.startsWith('gemini-2.5') || params.model.includes('nano-banana')
+  // 仅在 providerType 为 nano-banana 时生效
+  const isGeminiChatModel = providerType === 'nano-banana' && (params.model.startsWith('gemini-2.5') || params.model.includes('nano-banana'))
 
   // 判断是否使用 Gemini 3 Pro (需走新的自定义 Images 接口)
-  const isGemini3Pro = params.model.includes('gemini-3-pro')
+  // 仅在 providerType 为 nano-banana 时生效
+  const isGemini3Pro = providerType === 'nano-banana' && params.model.includes('gemini-3-pro')
   
   // 1. Gemini 3 Pro 处理逻辑 (新接口，异步轮询)
   if (isGemini3Pro) {

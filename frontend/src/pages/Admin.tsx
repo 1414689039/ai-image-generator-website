@@ -7,10 +7,11 @@ export default function Admin() {
   const [users, setUsers] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [generations, setGenerations] = useState<any[]>([])
-  const [apiKeys, setApiKeys] = useState<any[]>([])
   const [pointRules, setPointRules] = useState<any[]>([])
   const [stats, setStats] = useState<any>({})
   const [config, setConfig] = useState<any>({})
+  const [providers, setProviders] = useState<any[]>([])
+  const [providerModal, setProviderModal] = useState<{ show: boolean, data: any }>({ show: false, data: {} })
   
   // 筛选状态
   const [genUserIdFilter, setGenUserIdFilter] = useState('') // 生效的筛选ID
@@ -56,13 +57,11 @@ export default function Admin() {
           setGenTotal(genRes.data.total || 0)
           break
         case 'settings':
-          const [keysRes, rulesRes, statsRes, configRes] = await Promise.all([
-            apiClient.get('/admin/api-keys'),
+          const [rulesRes, statsRes, configRes] = await Promise.all([
             apiClient.get('/admin/point-rules'),
             apiClient.get('/admin/stats'),
             apiClient.get('/admin/config'),
           ])
-          setApiKeys(keysRes.data.apiKeys || [])
           setPointRules(rulesRes.data.rules || [])
           setStats(statsRes.data || {})
           setConfig(configRes.data.config || {})
@@ -112,16 +111,87 @@ export default function Admin() {
     }
   }
 
+  // 监听配置变化更新 providers
+  useEffect(() => {
+    if (config.providers_list) {
+        try {
+            setProviders(JSON.parse(config.providers_list))
+        } catch (e) {
+            setProviders([])
+        }
+    } else {
+        setProviders([])
+    }
+  }, [config])
+
   // 配置操作
-  const handleSaveConfig = async (key: string, value: string) => {
+  const handleSaveConfig = async (key: string | object, value?: string) => {
       try {
-          await apiClient.post('/admin/config', { [key]: value })
-          setConfig({ ...config, [key]: value })
-          alert('保存成功')
+          const payload = typeof key === 'object' ? key : { [key]: value! }
+          await apiClient.post('/admin/config', payload)
+          setConfig((prev: any) => ({ ...prev, ...payload }))
+          // alert('保存成功') // 批量保存时不频繁弹窗
       } catch (e) {
           alert('保存失败')
       }
   }
+
+  const handleSaveProvider = async () => {
+    let models = []
+    try {
+        models = JSON.parse(providerModal.data.modelsJson || '[]')
+    } catch (e) {
+        alert('模型列表 JSON 格式错误')
+        return
+    }
+
+    const newProvider = {
+        id: providerModal.data.id || Date.now().toString(),
+        name: providerModal.data.name,
+        type: providerModal.data.type, // 'openai', 'gemini', 'nano-banana'
+        baseUrl: providerModal.data.baseUrl,
+        apiKey: providerModal.data.apiKey,
+        models: models, // Array of {id, name}
+        active: providerModal.data.active || false
+    }
+
+    let updatedProviders = [...providers]
+    if (providerModal.data.id) {
+        updatedProviders = updatedProviders.map(p => p.id === newProvider.id ? { ...p, ...newProvider } : p)
+    } else {
+        updatedProviders.push(newProvider)
+    }
+
+    await handleSaveConfig('providers_list', JSON.stringify(updatedProviders))
+    setProviderModal({ show: false, data: {} })
+    alert('供应商已保存')
+  }
+
+  const handleDeleteProvider = async (id: string) => {
+      if (!confirm('确定要删除该供应商吗？')) return
+      const updatedProviders = providers.filter(p => p.id !== id)
+      await handleSaveConfig('providers_list', JSON.stringify(updatedProviders))
+  }
+
+  const handleActivateProvider = async (id: string) => {
+      const provider = providers.find(p => p.id === id)
+      if (!provider) return
+
+      // Update active flag in list
+      const updatedProviders = providers.map(p => ({ ...p, active: p.id === id }))
+      
+      // Update system config
+      await handleSaveConfig({
+          providers_list: JSON.stringify(updatedProviders),
+          api_gateway_url: provider.baseUrl,
+          api_gateway_key: provider.apiKey,
+          provider_type: provider.type,
+          provider_models: JSON.stringify(provider.models)
+      })
+      
+      alert(`已切换到 ${provider.name}`)
+  }
+
 
   return (
     <div className="min-h-screen bg-transparent pt-20 pb-10">
@@ -487,23 +557,53 @@ export default function Admin() {
               </div>
 
               <div>
-                <h2 className="text-xl font-semibold mb-4">联系客服信息配置</h2>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold">模型供应商 (多渠道切换)</h2>
+                    <button 
+                        onClick={() => setProviderModal({ show: true, data: { type: 'openai', modelsJson: '[]' } })}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-500 flex items-center"
+                    >
+                        <Plus size={16} className="mr-2" />
+                        添加供应商
+                    </button>
+                </div>
                 <div className="space-y-4">
-                  {apiKeys.map((key) => (
-                    <div key={key.id} className="flex items-center justify-between p-4 border border-white/10 rounded bg-white/5">
+                  {providers.length === 0 && <p className="text-gray-500">暂无供应商配置</p>}
+                  {providers.map((p) => (
+                    <div key={p.id} className={`flex items-center justify-between p-4 border rounded bg-white/5 ${p.active ? 'border-green-500/50 bg-green-500/10' : 'border-white/10'}`}>
                       <div>
-                        <p className="font-medium">{key.provider}</p>
-                        <p className="text-sm text-gray-400">{key.apiKey}</p>
+                        <div className="flex items-center gap-2">
+                            <p className="font-medium">{p.name}</p>
+                            {p.active && <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">当前使用</span>}
+                            <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{p.type}</span>
+                        </div>
+                        <p className="text-sm text-gray-400 mt-1">{p.baseUrl}</p>
+                        <p className="text-xs text-gray-500 mt-1">支持模型: {Array.isArray(p.models) ? p.models.map((m: any) => m.name).join(', ') : '无'}</p>
                       </div>
-                      <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
-                        编辑
-                      </button>
+                      <div className="flex items-center gap-3">
+                        {!p.active && (
+                            <button 
+                                onClick={() => handleActivateProvider(p.id)}
+                                className="px-3 py-1.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded hover:bg-green-600/30 transition-colors text-sm"
+                            >
+                                启用
+                            </button>
+                        )}
+                        <button 
+                            onClick={() => setProviderModal({ show: true, data: { ...p, modelsJson: JSON.stringify(p.models || [], null, 2) } })}
+                            className="px-3 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors text-sm"
+                        >
+                            编辑
+                        </button>
+                        <button 
+                            onClick={() => handleDeleteProvider(p.id)}
+                            className="px-3 py-1.5 bg-red-600/20 text-red-400 border border-red-600/30 rounded hover:bg-red-600/30 transition-colors text-sm"
+                        >
+                            删除
+                        </button>
+                      </div>
                     </div>
                   ))}
-                  <button className="w-full py-2 border-2 border-dashed border-white/20 rounded hover:border-blue-500 hover:text-blue-400 transition-colors text-gray-400 flex items-center justify-center">
-                    <Plus size={16} className="mr-2" />
-                    添加API密钥
-                  </button>
                 </div>
               </div>
 
@@ -540,6 +640,78 @@ export default function Admin() {
           )}
         </div>
       </div>
+
+      {/* 供应商编辑弹窗 */}
+      {providerModal.show && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+              <div className="bg-[#1e1e1e] border border-white/20 rounded-xl p-6 w-full max-w-lg text-white max-h-[90vh] overflow-y-auto">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-lg font-bold">{providerModal.data.id ? '编辑供应商' : '添加供应商'}</h3>
+                      <button onClick={() => setProviderModal({ ...providerModal, show: false })}><X size={20} className="text-gray-400" /></button>
+                  </div>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-sm text-gray-400 mb-1">名称</label>
+                          <input 
+                            type="text" 
+                            value={providerModal.data.name || ''} 
+                            onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, name: e.target.value } })}
+                            className="w-full bg-black/20 border border-white/10 rounded p-2 text-white"
+                            placeholder="例如：OpenAI, NanoBanana"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm text-gray-400 mb-1">类型</label>
+                          <select 
+                            value={providerModal.data.type || 'openai'} 
+                            onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, type: e.target.value } })}
+                            className="w-full bg-black/20 border border-white/10 rounded p-2 text-white"
+                          >
+                              <option value="openai">OpenAI (兼容)</option>
+                              <option value="nano-banana">Nano Banana / Gemini</option>
+                          </select>
+                          <p className="text-xs text-gray-500 mt-1">Nano Banana 类型支持特殊的 Gemini 3 Pro 逻辑</p>
+                      </div>
+                      <div>
+                          <label className="block text-sm text-gray-400 mb-1">API Base URL</label>
+                          <input 
+                            type="text" 
+                            value={providerModal.data.baseUrl || ''} 
+                            onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, baseUrl: e.target.value } })}
+                            className="w-full bg-black/20 border border-white/10 rounded p-2 text-white"
+                            placeholder="https://api.openai.com"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm text-gray-400 mb-1">API Key</label>
+                          <input 
+                            type="password" 
+                            value={providerModal.data.apiKey || ''} 
+                            onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, apiKey: e.target.value } })}
+                            className="w-full bg-black/20 border border-white/10 rounded p-2 text-white"
+                            placeholder="sk-..."
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm text-gray-400 mb-1">支持的模型列表 (JSON 格式)</label>
+                          <textarea 
+                            value={providerModal.data.modelsJson || ''}
+                            onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, modelsJson: e.target.value } })}
+                            className="w-full bg-black/20 border border-white/10 rounded p-2 text-white font-mono text-xs h-32"
+                            placeholder='[{"id":"dall-e-3","name":"DALL-E 3","price":1}]'
+                          />
+                          <p className="text-xs text-gray-500 mt-1">格式: Array of &#123; id, name, price &#125;</p>
+                      </div>
+                      <button 
+                        onClick={handleSaveProvider}
+                        className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-500 transition-colors"
+                      >
+                        保存供应商
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* 积分调整弹窗 */}
       {pointsModal.show && (
