@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { AuthContext } from '../middleware/auth'
 import { query, queryOne, execute } from '../utils/db'
 import { calculatePointsCost, deductPoints, addPoints } from '../utils/points'
+import { logSystem } from '../utils/logger'
 
 export const generationRoutes = new Hono<{ 
   Bindings: { 
@@ -252,6 +253,7 @@ generationRoutes.post('/create', async (c: AuthContext) => {
           const promises = generationIds.map(async (generationId) => {
               try {
                   const apiResponse = await callNanoBananaAPI({
+                    db, // 传递 db 实例
                     apiKey,
                     apiUrl: dynamicApiUrl,
                     providerType, // 传递 providerType
@@ -727,6 +729,7 @@ generationRoutes.get('/history', async (c: AuthContext) => {
    * 调用Nano Banana API的辅助函数
    */
 async function callNanoBananaAPI(params: {
+  db?: D1Database // 可选，用于记录日志
   apiKey: string
   apiUrl?: string
   providerType?: string // 新增
@@ -810,8 +813,9 @@ async function callNanoBananaAPI(params: {
         requestBody.image_urls = [params.referenceImageUrl]
     }
 
-    console.log(`[API Debug] Calling ${endpoint} with model ${params.model}`)
-    console.log(`[API Debug] Request Body:`, JSON.stringify(requestBody, null, 2))
+    // console.log(`[API Debug] Calling ${endpoint} with model ${params.model}`)
+    // console.log(`[API Debug] Request Body:`, JSON.stringify(requestBody, null, 2))
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Calling ${endpoint}`, { model: params.model, body: requestBody })
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -825,11 +829,13 @@ async function callNanoBananaAPI(params: {
 
     if (!response.ok) {
         const errorText = await response.text()
+        if (params.db) await logSystem(params.db, 'ERROR', 'API_DEBUG', `API Submit Failed: ${response.status}`, errorText)
         throw new Error(`API提交失败: ${response.status} ${errorText.substring(0, 100)}`)
     }
 
     const data: any = await response.json()
-    console.log(`[API Debug] Submit Response:`, JSON.stringify(data, null, 2))
+    // console.log(`[API Debug] Submit Response:`, JSON.stringify(data, null, 2))
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Submit Response`, data)
     
     // 获取 Task ID
     // 兼容两种格式：直接在 data.data[0].task_id 或直接在 data.task_id
@@ -840,7 +846,8 @@ async function callNanoBananaAPI(params: {
     }
 
     // 开始轮询
-    console.log(`[API Debug] Task ID: ${taskId}, starting polling...`)
+    // console.log(`[API Debug] Task ID: ${taskId}, starting polling...`)
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Task ID: ${taskId}, starting polling...`)
     const maxRetries = 5 // 只轮询5次 (约15秒)，避免 Worker 超时。如果还没好，返回 taskId 让前端轮询
     const interval = 3000 // 每次间隔 3 秒
     
@@ -852,7 +859,7 @@ async function callNanoBananaAPI(params: {
         // 根据抓包分析，查询路径应为 /v1/tasks/{taskId}
         const queryUrl = `${cleanBaseUrl}/v1/tasks/${taskId}`
         
-        console.log(`[API Debug] Polling URL: ${queryUrl}`)
+        // console.log(`[API Debug] Polling URL: ${queryUrl}`)
         
         try {
             const queryRes = await fetch(queryUrl, {
@@ -863,11 +870,12 @@ async function callNanoBananaAPI(params: {
                 }
             })
             
-            console.log(`[API Debug] Poll Status: ${queryRes.status}`)
+            // console.log(`[API Debug] Poll Status: ${queryRes.status}`)
             
             if (queryRes.ok) {
                 const queryData: any = await queryRes.json()
-                console.log(`[API Debug] Poll Data:`, JSON.stringify(queryData).substring(0, 500)) // 打印前500字符
+                // console.log(`[API Debug] Poll Data:`, JSON.stringify(queryData).substring(0, 500)) // 打印前500字符
+                if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Poll Data (Attempt ${i+1})`, queryData)
 
                 // 检查状态
                 // 兼容多种状态字段位置
@@ -898,14 +906,17 @@ async function callNanoBananaAPI(params: {
                 }
             } else {
                 const errText = await queryRes.text()
-                console.log(`[API Debug] Poll Error Body: ${errText.substring(0, 200)}`)
+                // console.log(`[API Debug] Poll Error Body: ${errText.substring(0, 200)}`)
+                if (params.db) await logSystem(params.db, 'WARN', 'API_DEBUG', `Poll Error Body`, errText)
             }
         } catch (e) {
             console.warn(`[API Debug] Polling error:`, e)
+            if (params.db) await logSystem(params.db, 'WARN', 'API_DEBUG', `Polling error`, e)
         }
     }
     
-    console.log(`[API Debug] Task ${taskId} still pending after initial polling.`)
+    // console.log(`[API Debug] Task ${taskId} still pending after initial polling.`)
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Task ${taskId} still pending after initial polling.`)
     return { images: [], taskId, status: 'pending' }
   }
 

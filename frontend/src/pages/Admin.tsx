@@ -3,10 +3,11 @@ import apiClient from '../api/client'
 import { Trash2, Save, Plus, X } from 'lucide-react'
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'generations' | 'settings'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'orders' | 'generations' | 'settings' | 'logs'>('users')
   const [users, setUsers] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [generations, setGenerations] = useState<any[]>([])
+  const [logs, setLogs] = useState<any[]>([])
   const [pointRules, setPointRules] = useState<any[]>([])
   const [stats, setStats] = useState<any>({})
   const [config, setConfig] = useState<any>({})
@@ -20,6 +21,11 @@ export default function Admin() {
   const [genTotal, setGenTotal] = useState(0)
   const GEN_LIMIT = 20
 
+  const [logPage, setLogPage] = useState(1)
+  const [logTotal, setLogTotal] = useState(0)
+  const LOG_LIMIT = 50
+  const [logDetailsId, setLogDetailsId] = useState<number | null>(null) // 展开详情的日志ID
+
   // 弹窗状态
   const [pointsModal, setPointsModal] = useState<{ show: boolean, userId: number, username: string }>({ show: false, userId: 0, username: '' })
   const [pointsAmount, setPointsAmount] = useState('')
@@ -30,6 +36,9 @@ export default function Admin() {
     if (activeTab === 'generations') {
         setGenPage(1)
     }
+    if (activeTab === 'logs') {
+        setLogPage(1)
+    }
     loadData()
   }, [activeTab, genUserIdFilter])
 
@@ -38,7 +47,10 @@ export default function Admin() {
     if (activeTab === 'generations') {
         loadData()
     }
-  }, [genPage])
+    if (activeTab === 'logs') {
+        loadData()
+    }
+  }, [genPage, logPage])
 
   const loadData = async () => {
     try {
@@ -55,6 +67,11 @@ export default function Admin() {
           const genRes = await apiClient.get(`/admin/generations?page=${genPage}&limit=${GEN_LIMIT}${genUserIdFilter ? `&userId=${genUserIdFilter}` : ''}`)
           setGenerations(genRes.data.generations || [])
           setGenTotal(genRes.data.total || 0)
+          break
+        case 'logs':
+          const logsRes = await apiClient.get(`/admin/logs?page=${logPage}&limit=${LOG_LIMIT}`)
+          setLogs(logsRes.data.logs || [])
+          setLogTotal(logsRes.data.total || 0)
           break
         case 'settings':
           try {
@@ -119,6 +136,51 @@ export default function Admin() {
     } catch (e) {
         alert('删除失败')
     }
+  }
+
+  const handleClearLogs = async () => {
+      if (!confirm('确定要清空所有日志吗？此操作不可恢复。')) return
+      try {
+          await apiClient.delete('/admin/logs')
+          loadData() // 刷新列表
+          alert('日志已清空')
+      } catch (e) {
+          alert('清空失败')
+      }
+  }
+
+  const handleExportLogs = () => {
+      if (logs.length === 0) {
+          alert('暂无日志可导出')
+          return
+      }
+      
+      // 生成 CSV 内容
+      const headers = ['ID', 'Level', 'Category', 'Message', 'Created At', 'Details']
+      const rows = logs.map(log => [
+          log.id,
+          log.level,
+          log.category,
+          `"${log.message.replace(/"/g, '""')}"`, // 转义 CSV 中的引号
+          log.created_at,
+          `"${JSON.stringify(log.details || '').replace(/"/g, '""')}"`
+      ])
+      
+      const csvContent = [
+          headers.join(','),
+          ...rows.map(row => row.join(','))
+      ].join('\n')
+      
+      // 创建 Blob 并下载
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', `system_logs_${new Date().toISOString().slice(0,10)}.csv`)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
   }
 
   // 监听配置变化更新 providers
@@ -238,6 +300,7 @@ export default function Admin() {
               { key: 'users', label: '用户管理' },
               { key: 'orders', label: '订单查询' },
               { key: 'generations', label: '生成记录' },
+              { key: 'logs', label: '系统日志' },
               { key: 'settings', label: '系统配置' },
             ].map((tab) => (
               <button
@@ -452,6 +515,111 @@ export default function Admin() {
                       <button 
                         onClick={() => setGenPage(p => p + 1)}
                         disabled={genPage * GEN_LIMIT >= genTotal}
+                        className="px-3 py-1 bg-white/5 rounded hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        下一页
+                      </button>
+                  </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">系统日志</h2>
+                  <div className="flex gap-2">
+                      <button 
+                        onClick={loadData}
+                        className="bg-white/10 text-white px-3 py-1.5 rounded text-sm hover:bg-white/20"
+                      >
+                        刷新
+                      </button>
+                      <button 
+                        onClick={handleExportLogs}
+                        className="bg-green-600/80 text-white px-3 py-1.5 rounded text-sm hover:bg-green-500/80"
+                      >
+                        导出 CSV
+                      </button>
+                      <button 
+                        onClick={handleClearLogs}
+                        className="bg-red-600/80 text-white px-3 py-1.5 rounded text-sm hover:bg-red-500/80"
+                      >
+                        清空日志
+                      </button>
+                  </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-white/10">
+                  <thead className="bg-white/5">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">时间</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">级别</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">类别</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase w-1/3">内容</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">详情</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {logs.map((log) => (
+                      <>
+                      <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                            {new Date(log.created_at).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                            log.level === 'ERROR' ? 'bg-red-500/20 text-red-400' : 
+                            log.level === 'WARN' ? 'bg-yellow-500/20 text-yellow-400' : 
+                            'bg-blue-500/20 text-blue-400'
+                          }`}>
+                            {log.level}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{log.category}</td>
+                        <td className="px-6 py-4 text-sm max-w-xs truncate" title={log.message}>{log.message}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            {log.details ? (
+                                <button 
+                                    onClick={() => setLogDetailsId(logDetailsId === log.id ? null : log.id)}
+                                    className="text-blue-400 hover:text-blue-300 text-xs underline"
+                                >
+                                    {logDetailsId === log.id ? '收起' : '查看 JSON'}
+                                </button>
+                            ) : <span className="text-gray-600">-</span>}
+                        </td>
+                      </tr>
+                      {logDetailsId === log.id && log.details && (
+                          <tr className="bg-black/20">
+                              <td colSpan={5} className="px-6 py-4">
+                                  <pre className="text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap font-mono bg-black/40 p-4 rounded border border-white/5 max-h-60 overflow-y-auto">
+                                      {JSON.stringify(log.details, null, 2)}
+                                  </pre>
+                              </td>
+                          </tr>
+                      )}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              
+              {/* Pagination */}
+              <div className="flex justify-between items-center mt-4 text-sm text-gray-400">
+                  <div>
+                      共 {logTotal} 条日志，当前第 {logPage} 页
+                  </div>
+                  <div className="flex gap-2">
+                      <button 
+                        onClick={() => setLogPage(p => Math.max(1, p - 1))}
+                        disabled={logPage === 1}
+                        className="px-3 py-1 bg-white/5 rounded hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        上一页
+                      </button>
+                      <button 
+                        onClick={() => setLogPage(p => p + 1)}
+                        disabled={logPage * LOG_LIMIT >= logTotal}
                         className="px-3 py-1 bg-white/5 rounded hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         下一页

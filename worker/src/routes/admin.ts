@@ -11,6 +11,98 @@ export const adminRoutes = new Hono<{
 }>()
 
 /**
+ * 获取系统日志
+ * GET /api/admin/logs
+ */
+adminRoutes.get('/logs', async (c: AuthContext) => {
+  try {
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '50') // 默认50条
+    const offset = (page - 1) * limit
+    const level = c.req.query('level')
+    const category = c.req.query('category')
+
+    const db = c.env.DB
+
+    let sql = 'SELECT id, level, category, message, details, created_at FROM system_logs WHERE 1=1'
+    const params: any[] = []
+
+    if (level) {
+      sql += ' AND level = ?'
+      params.push(level)
+    }
+
+    if (category) {
+      sql += ' AND category = ?'
+      params.push(category)
+    }
+
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+    params.push(limit, offset)
+
+    const logs = await query<{
+      id: number
+      level: string
+      category: string
+      message: string
+      details: string | null
+      created_at: string
+    }>(db, sql, params)
+
+    // 获取总数
+    let countSql = 'SELECT COUNT(*) as count FROM system_logs WHERE 1=1'
+    const countParams: any[] = []
+
+    if (level) {
+      countSql += ' AND level = ?'
+      countParams.push(level)
+    }
+
+    if (category) {
+      countSql += ' AND category = ?'
+      countParams.push(category)
+    }
+
+    const totalResult = await queryOne<{ count: number }>(db, countSql, countParams)
+
+    return c.json({
+      logs: logs.map(l => ({
+        ...l,
+        details: l.details ? JSON.parse(l.details) : null
+      })),
+      total: totalResult?.count || 0,
+      page,
+      limit,
+    })
+  } catch (error: any) {
+    console.error('Get logs error:', error)
+    return c.json({ error: '获取日志失败', message: error.message }, 500)
+  }
+})
+
+/**
+ * 清空系统日志
+ * DELETE /api/admin/logs
+ */
+adminRoutes.delete('/logs', async (c: AuthContext) => {
+  try {
+    const db = c.env.DB
+    const days = c.req.query('days') // 可选：只删除 X 天前的
+
+    if (days) {
+        await execute(db, "DELETE FROM system_logs WHERE created_at < date('now', '-' || ? || ' days')", [days])
+    } else {
+        await execute(db, 'DELETE FROM system_logs')
+    }
+
+    return c.json({ success: true, message: '日志已清理' })
+  } catch (error: any) {
+    console.error('Clear logs error:', error)
+    return c.json({ error: '清理日志失败', message: error.message }, 500)
+  }
+})
+
+/**
  * 获取用户列表
  * GET /api/admin/users
  */
