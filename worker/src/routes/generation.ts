@@ -133,8 +133,8 @@ generationRoutes.post('/create', async (c: AuthContext) => {
     let price4k = 6
     
     // API配置
-    let dynamicApiUrl = c.env.NANO_BANANA_API_URL
-    let dynamicApiKey = c.env.NANO_BANANA_API_KEY
+    let dynamicApiUrl = ''
+    let dynamicApiKey = ''
     let providerType = 'nano-banana' // 默认保持原有行为
 
     try {
@@ -362,8 +362,8 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
         const db = c.env.DB
         
         // 动态获取 API 配置
-        let apiKey = c.env.NANO_BANANA_API_KEY
-        let baseUrl = c.env.NANO_BANANA_API_URL || 'https://api.apimart.ai'
+        let apiKey = ''
+        let baseUrl = 'https://api.apimart.ai'
 
         try {
             const configs = await query<{key: string, value: string}>(
