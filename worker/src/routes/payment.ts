@@ -93,7 +93,7 @@ paymentRoutes.post('/create-order', async (c: AuthContext) => {
       type: paymentMethod || 'alipay', // alipay 或 wxpay
       out_trade_no: orderNo,
       notify_url: `https://ai-image-generator-worker.a1414689039.workers.dev/api/payment/notify`,
-      return_url: `https://ai-image-frontend-7fb.pages.dev/payment/result?order_no=${orderNo}`, // 使用生产环境域名
+      return_url: `${c.env.FRONTEND_URL || 'https://ai-image-generator-frontend.pages.dev'}/payment/result?order_no=${orderNo}`,
       name: 'Points Recharge', // 暂时使用英文避免编码问题
       money: amount.toString(),
       sitename: 'AI Image Gen' // 暂时使用英文避免编码问题

@@ -107,6 +107,22 @@ authRoutes.post('/login', async (c) => {
       return c.json({ error: '用户名或密码错误' }, 401)
     }
 
+    // 检查维护模式 (仅拦截非管理员)
+    if (user.is_admin !== 1) {
+        try {
+            const config = await queryOne<{ value: string }>(
+                db, 
+                "SELECT \"value\" FROM system_configs WHERE \"key\" = 'maintenance_mode'"
+            )
+            
+            if (config?.value === 'true') {
+                return c.json({ error: '系统维护中，请稍后访问', maintenance: true }, 503)
+            }
+        } catch (e) {
+            console.error('Maintenance check error during login:', e)
+        }
+    }
+
     // 生成JWT令牌
     const token = await signJWT(
       {

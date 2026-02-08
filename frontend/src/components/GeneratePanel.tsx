@@ -1,31 +1,88 @@
-import { useState, useRef } from 'react'
-import { Sparkles, Upload } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Sparkles, Upload, X } from 'lucide-react'
+import apiClient from '../api/client'
 
 interface GeneratePanelProps {
-  selectedTab: 'image' | 'video'
-  onTabChange: (tab: 'image' | 'video') => void
   onGenerate: (data: any) => void
+  initialData?: {
+    prompt?: string
+    model?: string
+    aspectRatio?: string
+    resolution?: string
+  } | null
 }
 
-export default function GeneratePanel({ selectedTab, onTabChange, onGenerate }: GeneratePanelProps) {
+interface Model {
+  id: string
+  name: string
+  price: number
+}
+
+const MODELS: Model[] = [
+  { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro', price: 1.0 },
+]
+
+const ASPECT_RATIOS = [
+  '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'
+]
+
+export default function GeneratePanel({ onGenerate, initialData }: GeneratePanelProps) {
   const [prompt, setPrompt] = useState('')
-  const [model, setModel] = useState('gemini-2.5-flash-image')
-  const [referenceImage, setReferenceImage] = useState<string | null>(null)
+  const [model, setModel] = useState('gemini-3-pro-image-preview')
+  const [referenceImages, setReferenceImages] = useState<string[]>([])
+  
   const [aspectRatio, setAspectRatio] = useState('1:1')
-  const [resolution, setResolution] = useState('1024*1024')
+  const [resolution, setResolution] = useState('1K')
   const [quantity, setQuantity] = useState(1)
-  const [quality, setQuality] = useState('standard')
+  
+  // 积分定价配置
+  const [priceConfig, setPriceConfig] = useState<{
+    price_1k: number
+    price_2k: number
+    price_4k: number
+  }>({
+    price_1k: 2,
+    price_2k: 4,
+    price_4k: 6
+  })
+
+  useEffect(() => {
+    // 加载定价配置
+    apiClient.get('/config').then(res => {
+        if (res.data?.config) {
+            setPriceConfig({
+                price_1k: parseFloat(res.data.config.price_1k) || 2,
+                price_2k: parseFloat(res.data.config.price_2k) || 4,
+                price_4k: parseFloat(res.data.config.price_4k) || 6
+            })
+        }
+    }).catch(err => console.error('Failed to load pricing:', err))
+
+    if (initialData) {
+      if (initialData.prompt) setPrompt(initialData.prompt)
+      if (initialData.model) setModel(initialData.model)
+      if (initialData.aspectRatio) setAspectRatio(initialData.aspectRatio)
+      if (initialData.resolution) setResolution(initialData.resolution)
+    }
+  }, [initialData])
+  
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setReferenceImage(reader.result as string)
-      }
-      reader.readAsDataURL(file)
+    const files = e.target.files
+    if (files && files.length > 0) {
+      Array.from(files).forEach(file => {
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          setReferenceImages(prev => [...prev, reader.result as string])
+        }
+        reader.readAsDataURL(file)
+      })
     }
+  }
+
+  const removeImage = (index: number) => {
+    setReferenceImages(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleGenerate = () => {
@@ -34,186 +91,162 @@ export default function GeneratePanel({ selectedTab, onTabChange, onGenerate }: 
       return
     }
 
-    const [width, height] = resolution.split('*').map(Number)
-
     onGenerate({
-      type: referenceImage ? 'image_to_image' : 'text_to_image',
+      type: referenceImages.length > 0 ? 'image_to_image' : 'text_to_image',
       prompt,
-      referenceImage,
+      referenceImages, // 传递数组
       model,
-      width,
-      height,
-      quality,
+      size: aspectRatio, 
+      resolution,
       quantity,
     })
   }
 
   const calculatePoints = () => {
-    // 简化的积分计算（实际应该从API获取）
-    const basePoints = quality === 'standard' ? 1 : quality === 'hd' ? 2 : 3
-    return basePoints * quantity
+    // 根据分辨率计算基础积分
+    let basePrice = priceConfig.price_1k
+    if (resolution === '2K') basePrice = priceConfig.price_2k
+    if (resolution === '4K') basePrice = priceConfig.price_4k
+    
+    return basePrice * quantity
   }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-6">
-      <h2 className="text-xl font-bold text-gray-900">Generate</h2>
+    <div className="flex flex-col h-full bg-transparent text-white p-4 overflow-y-auto scrollbar-hide">
+      
+      <div className="space-y-6 pr-2 mt-4">
+        {/* 模型选择 */}
+        <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-400">模型</label>
+            <div className="relative">
+                <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    disabled
+                    className="w-full bg-white/5 border border-white/10 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 appearance-none backdrop-blur-md cursor-not-allowed opacity-70 transition-all"
+                >
+                    {MODELS.map((m) => (
+                        <option key={m.id} value={m.id} className="bg-[#1e1e1e]">{m.name}</option>
+                    ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+            </div>
+        </div>
 
-      {/* 标签切换 */}
-      <div className="flex space-x-2 border-b">
+        {/* 上传参考图 */}
+        <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-400">上传参考图 (可多选)</label>
+            <div className="grid grid-cols-3 gap-2">
+                {referenceImages.map((img, idx) => (
+                    <div key={idx} className="relative group aspect-square">
+                        <img src={img} alt={`ref-${idx}`} className="w-full h-full object-cover rounded-lg border border-white/10" />
+                        <button 
+                            onClick={() => removeImage(idx)}
+                            className="absolute -top-2 -right-2 bg-red-500 rounded-full p-1 text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-sm"
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                ))}
+                
+                <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="aspect-square border border-dashed border-white/20 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-500/50 hover:bg-blue-500/5 transition-all bg-white/5 backdrop-blur-sm group"
+                >
+                    <div className="bg-white/10 p-2 rounded-full mb-2 group-hover:scale-110 transition-transform">
+                        <Upload size={18} className="text-gray-400 group-hover:text-blue-400" />
+                    </div>
+                    <span className="text-[10px] text-gray-500 group-hover:text-gray-300">上传图片</span>
+                </div>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileUpload} className="hidden" />
+        </div>
+
+        {/* 提示词 */}
+        <div className="space-y-2 flex flex-col">
+            <label className="text-xs font-medium text-gray-400">提示词</label>
+            <div className="relative w-full">
+                <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="描述你想象中的画面... (例如：一只赛博朋克风格的猫，霓虹灯背景，高画质)"
+                    className="w-full h-40 bg-white/5 border border-white/10 rounded-xl p-4 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 resize-none backdrop-blur-md transition-all"
+                />
+                <button className="absolute bottom-3 right-3 text-xs text-blue-300 hover:text-white flex items-center bg-blue-500/10 hover:bg-blue-500/30 px-3 py-1.5 rounded-lg border border-blue-500/20 transition-all">
+                    <Sparkles size={12} className="mr-1" /> 优化
+                </button>
+            </div>
+        </div>
+      </div>
+
+      {/* 底部参数区 */}
+      <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+        {/* 分辨率 */}
+        <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-gray-400">分辨率</span>
+            <div className="flex bg-black/20 rounded p-0.5 border border-white/10">
+                {['1K', '2K', '4K'].map(res => (
+                    <button
+                        key={res}
+                        onClick={() => setResolution(res)}
+                        className={`px-3 py-1 text-xs rounded transition-colors ${resolution === res ? 'bg-white/20 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                    >
+                        {res}
+                    </button>
+                ))}
+            </div>
+        </div>
+
+        {/* 宽高比 */}
+        <div className="flex flex-col space-y-2">
+            <span className="text-xs font-medium text-gray-400">宽高比</span>
+            <div className="grid grid-cols-5 gap-1.5">
+                {ASPECT_RATIOS.map((ratio) => (
+                    <button
+                        key={ratio}
+                        onClick={() => setAspectRatio(ratio)}
+                        className={`py-1.5 text-[10px] rounded transition-colors ${
+                            aspectRatio === ratio 
+                                ? 'bg-white/20 text-white font-medium border border-white/30' 
+                                : 'bg-black/20 text-gray-400 hover:text-gray-200 border border-transparent hover:border-white/10'
+                        }`}
+                    >
+                        {ratio}
+                    </button>
+                ))}
+            </div>
+        </div>
+
+        {/* 数量 */}
+        <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-gray-400">数量</span>
+            <div className="flex bg-black/20 rounded p-0.5 space-x-0.5 border border-white/10">
+                {[1, 2, 3, 4].map(num => (
+                    <button
+                        key={num}
+                        onClick={() => setQuantity(num)}
+                        className={`w-8 py-1 text-xs rounded transition-colors ${quantity === num ? 'bg-white text-black font-bold' : 'text-gray-500 hover:text-gray-300'}`}
+                    >
+                        {num}
+                    </button>
+                ))}
+            </div>
+        </div>
+
+        {/* 生成按钮 */}
         <button
-          onClick={() => onTabChange('image')}
-          className={`px-4 py-2 font-medium ${
-            selectedTab === 'image'
-              ? 'border-b-2 border-primary-600 text-primary-600'
-              : 'text-gray-600'
-          }`}
+            onClick={handleGenerate}
+            className="w-full py-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white rounded-xl font-semibold hover:from-blue-500 hover:via-indigo-500 hover:to-purple-500 transition-all flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_25px_rgba(37,99,235,0.5)] border border-white/10 active:scale-[0.98]"
         >
-          图片
-        </button>
-        <button
-          onClick={() => onTabChange('video')}
-          className={`px-4 py-2 font-medium ${
-            selectedTab === 'video'
-              ? 'border-b-2 border-primary-600 text-primary-600'
-              : 'text-gray-600'
-          }`}
-        >
-          视频
+            <Sparkles size={18} className="mr-2 animate-pulse" />
+            <span className="text-base">立即生成</span>
+            <span className="ml-2 text-xs font-normal opacity-80 bg-black/20 px-2 py-0.5 rounded-full">
+                {calculatePoints().toFixed(1)} pts
+            </span>
         </button>
       </div>
-
-      {/* 模型选择 */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">模型</label>
-        <select
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500"
-        >
-          <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image (Nano Banana)</option>
-          <option value="gemini-2.5-flash-image-preview">Gemini 2.5 Flash Image Preview</option>
-          <option value="dall-e-3">DALL-E 3</option>
-        </select>
-      </div>
-
-      {/* 上传参考图 */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">上传参考图</label>
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-primary-500"
-        >
-          <Upload className="mx-auto h-12 w-12 text-gray-400" />
-          <p className="mt-2 text-sm text-gray-600">点击上传参考图</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-        </div>
-        {referenceImage && (
-          <div className="mt-2 relative">
-            <img src={referenceImage} alt="参考图" className="w-full h-32 object-cover rounded" />
-            <button
-              onClick={() => setReferenceImage(null)}
-              className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded text-xs"
-            >
-              删除
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 提示词输入 */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">提示词</label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="描述你想生成的内容..."
-          rows={4}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500"
-        />
-        <a href="#" className="text-sm text-primary-600 hover:text-primary-700 mt-1 flex items-center">
-          <Sparkles size={14} className="mr-1" />
-          提示词优化
-        </a>
-      </div>
-
-      {/* 宽高比 */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">宽高比</label>
-        <div className="flex items-center space-x-4">
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={aspectRatio === '1:1'}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  setAspectRatio('1:1')
-                  setResolution('1024*1024')
-                }
-              }}
-              className="mr-2"
-            />
-            1:1
-          </label>
-          <select
-            value={resolution}
-            onChange={(e) => setResolution(e.target.value)}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500"
-          >
-            <option value="1024*1024">1024*1024</option>
-            <option value="1024*768">1024*768</option>
-            <option value="768*1024">768*1024</option>
-            <option value="512*512">512*512</option>
-          </select>
-        </div>
-      </div>
-
-      {/* 画质 */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">画质</label>
-        <select
-          value={quality}
-          onChange={(e) => setQuality(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500"
-        >
-          <option value="standard">标准</option>
-          <option value="hd">高清</option>
-          <option value="ultra_hd">超高清</option>
-        </select>
-      </div>
-
-      {/* 数量 */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">数量</label>
-        <div className="flex space-x-2">
-          {[1, 2, 3, 4].map((num) => (
-            <button
-              key={num}
-              onClick={() => setQuantity(num)}
-              className={`flex-1 py-2 border rounded-md ${
-                quantity === num
-                  ? 'bg-primary-600 text-white border-primary-600'
-                  : 'border-gray-300 text-gray-700 hover:border-primary-500'
-              }`}
-            >
-              {num}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 生成按钮 */}
-      <button
-        onClick={handleGenerate}
-        className="w-full py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 font-medium"
-      >
-        生成 ({calculatePoints().toFixed(2)} points)
-      </button>
     </div>
   )
 }
