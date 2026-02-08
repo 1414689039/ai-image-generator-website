@@ -309,6 +309,9 @@ generationRoutes.post('/create', async (c: AuthContext) => {
                   console.error(`Generation failed for ID ${generationId}:`, apiError)
                   const errorMessage = apiError.message || JSON.stringify(apiError)
                   
+                  // 记录系统日志
+                  await logSystem(db, 'ERROR', 'GENERATION_FAIL', `Task ${generationId} failed`, errorMessage)
+
                   // 更新失败状态
                   await execute(
                     db,
@@ -332,8 +335,9 @@ generationRoutes.post('/create', async (c: AuthContext) => {
           
           await Promise.all(promises)
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Background generation fatal error:', error)
+            await logSystem(db, 'ERROR', 'BG_TASK_FATAL', 'Background generation fatal error', error.message || error)
         }
       })()
     )
@@ -349,6 +353,11 @@ generationRoutes.post('/create', async (c: AuthContext) => {
 
   } catch (error: any) {
     console.error('Generation error:', error)
+    // 尝试记录日志 (如果 c.env.DB 可用)
+    try {
+        if (c.env.DB) await logSystem(c.env.DB, 'ERROR', 'CREATE_GEN_ERROR', 'Generation request failed', error.message || error)
+    } catch (e) { console.error('Failed to log error', e) }
+    
     return c.json({ error: '生成失败', message: error.message }, 500)
   }
 })
@@ -452,7 +461,7 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
 
         // 2. 调用 API 查询状态
         // 假设是 Gemini 3 Pro 格式 (Apimart)
-        const cleanBaseUrl = baseUrl.replace(/\/$/, '')
+        const cleanBaseUrl = baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
         
         let taskIds: string[] = []
         try {
@@ -478,6 +487,9 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
 
                 if (!res.ok) {
                     console.error(`Check status failed for ${tid}: ${res.status}`)
+                    // 记录日志
+                    await logSystem(db, 'WARN', 'CHECK_STATUS', `Check HTTP ${res.status} for ${tid}`, queryUrl)
+
                     // 客户端错误返回 failed，其他返回 pending (null)
                     if (res.status >= 400 && res.status < 500 && res.status !== 429) {
                         return { status: 'failed', error: `API Error ${res.status}` }
@@ -515,6 +527,7 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
 
             } catch (e) {
                 console.error(`Fetch error for ${tid}:`, e)
+                await logSystem(db, 'ERROR', 'CHECK_STATUS', `Check fetch error for ${tid}`, e)
                 return null
             }
         })
@@ -611,6 +624,9 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
 
     } catch (e: any) {
         console.error('Check generation error:', e)
+        try {
+            if (c.env.DB) await logSystem(c.env.DB, 'ERROR', 'CHECK_STATUS_ERROR', 'Check status failed', e.message || e)
+        } catch (err) { console.error('Failed to log check error', err) }
         return c.json({ error: '查询状态失败' }, 500)
     }
 })
@@ -672,6 +688,9 @@ generationRoutes.get('/history', async (c: AuthContext) => {
     })
   } catch (error: any) {
     console.error('Get history error:', error)
+    try {
+        if (c.env.DB) await logSystem(c.env.DB, 'ERROR', 'GET_HISTORY_ERROR', 'Get history failed', error.message || error)
+    } catch (err) { console.error('Failed to log history error', err) }
     return c.json({ error: '获取历史失败', message: error.message }, 500)
     }
   })
@@ -721,6 +740,9 @@ generationRoutes.get('/history', async (c: AuthContext) => {
   
     } catch (error: any) {
       console.error('Delete generation error:', error)
+      try {
+        if (c.env.DB) await logSystem(c.env.DB, 'ERROR', 'DELETE_GEN_ERROR', 'Delete generation failed', error.message || error)
+      } catch (err) { console.error('Failed to log delete error', err) }
       return c.json({ error: '删除失败', message: error.message }, 500)
     }
   })
@@ -746,7 +768,8 @@ async function callNanoBananaAPI(params: {
   resolution?: string
 }): Promise<{ images: string[]; taskId?: string; status?: string }> {
   const baseUrl = params.apiUrl || 'https://api.apimart.ai'
-  const cleanBaseUrl = baseUrl.replace(/\/$/, '')
+  // 智能处理 Base URL：去除末尾斜杠，并去除末尾的 /v1 (防止重复拼接)
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
   const providerType = params.providerType || 'nano-banana'
   
   // 判断是否使用 Gemini 2.5 系列模型（需走 Chat Completions 接口）

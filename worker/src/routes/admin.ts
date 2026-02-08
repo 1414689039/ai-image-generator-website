@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { AuthContext } from '../middleware/auth'
 import { query, queryOne, execute } from '../utils/db'
 import { addPoints } from '../utils/points'
+import { logSystem } from '../utils/logger'
 
 export const adminRoutes = new Hono<{ 
   Bindings: { DB: D1Database }
@@ -100,6 +101,20 @@ adminRoutes.delete('/logs', async (c: AuthContext) => {
     console.error('Clear logs error:', error)
     return c.json({ error: '清理日志失败', message: error.message }, 500)
   }
+})
+
+/**
+ * 写入测试日志
+ * POST /api/admin/logs/test
+ */
+adminRoutes.post('/logs/test', async (c: AuthContext) => {
+    try {
+        const db = c.env.DB
+        await logSystem(db, 'INFO', 'TEST_LOG', 'This is a test log from admin panel', { timestamp: new Date().toISOString(), user: c.get('user').username })
+        return c.json({ success: true, message: 'Test log written' })
+    } catch (e: any) {
+        return c.json({ error: 'Failed to write test log', message: e.message }, 500)
+    }
 })
 
 /**

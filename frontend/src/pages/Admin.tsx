@@ -290,7 +290,7 @@ export default function Admin() {
       <div className="container mx-auto px-4">
         <div className="flex items-center gap-4 mb-6">
             <h1 className="text-3xl font-bold text-white">管理员面板</h1>
-            <span className="px-2 py-1 rounded bg-blue-600/20 text-blue-400 text-xs border border-blue-600/30">v1.2</span>
+            <span className="px-2 py-1 rounded bg-blue-600/20 text-blue-400 text-xs border border-blue-600/30">v1.3</span>
         </div>
 
         {/* 标签页 */}
@@ -546,6 +546,20 @@ export default function Admin() {
                         className="bg-red-600/80 text-white px-3 py-1.5 rounded text-sm hover:bg-red-500/80"
                       >
                         清空日志
+                      </button>
+                      <button 
+                        onClick={async () => {
+                            try {
+                                await apiClient.post('/admin/logs/test')
+                                alert('测试日志已写入，请点击刷新查看')
+                                loadData()
+                            } catch (e) {
+                                alert('写入测试日志失败')
+                            }
+                        }}
+                        className="bg-purple-600/80 text-white px-3 py-1.5 rounded text-sm hover:bg-purple-500/80"
+                      >
+                        写入测试
                       </button>
                   </div>
               </div>

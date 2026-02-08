@@ -150,9 +150,21 @@ app.notFound((c) => {
   return c.json({ error: 'Not Found' }, 404)
 })
 
+import { logSystem } from './utils/logger'
+
 // 错误处理
-app.onError((err, c) => {
+app.onError(async (err, c) => {
   console.error('Error:', err)
+  try {
+      if (c.env && c.env.DB) {
+          // 尝试记录到数据库，不等待
+          c.executionCtx.waitUntil(
+              logSystem(c.env.DB, 'ERROR', 'GLOBAL_ERROR', 'Unhandled Exception', err.message || err)
+          )
+      }
+  } catch (e) {
+      console.error('Failed to log global error:', e)
+  }
   return c.json({ error: 'Internal Server Error', message: err.message }, 500)
 })
 
