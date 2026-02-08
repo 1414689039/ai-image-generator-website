@@ -175,9 +175,26 @@ export default function Admin() {
         updatedProviders.push(newProvider)
     }
 
-    await handleSaveConfig('providers_list', JSON.stringify(updatedProviders))
+    // 如果当前保存的 Provider 是激活状态，或者列表中只有一个 Provider，则强制更新全局配置
+    const shouldUpdateGlobal = newProvider.active || updatedProviders.length === 1
+
+    if (shouldUpdateGlobal) {
+        // 确保 newProvider 是激活的
+        updatedProviders = updatedProviders.map(p => ({ ...p, active: p.id === newProvider.id }))
+        
+        await handleSaveConfig({
+            providers_list: JSON.stringify(updatedProviders),
+            api_gateway_url: newProvider.baseUrl,
+            api_gateway_key: newProvider.apiKey,
+            provider_type: newProvider.type,
+            provider_models: JSON.stringify(newProvider.models)
+        })
+    } else {
+        await handleSaveConfig('providers_list', JSON.stringify(updatedProviders))
+    }
+
     setProviderModal({ show: false, data: {} })
-    alert('供应商已保存')
+    alert('供应商已保存' + (shouldUpdateGlobal ? ' 并已应用为当前配置' : ''))
   }
 
   const handleDeleteProvider = async (id: string) => {

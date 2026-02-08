@@ -867,9 +867,10 @@ async function callNanoBananaAPI(params: {
             
             if (queryRes.ok) {
                 const queryData: any = await queryRes.json()
-                // console.log(`[API Debug] Poll Data:`, JSON.stringify(queryData).substring(0, 200))
+                console.log(`[API Debug] Poll Data:`, JSON.stringify(queryData).substring(0, 500)) // 打印前500字符
 
                 // 检查状态
+                // 兼容多种状态字段位置
                 const status = queryData.status || queryData.data?.[0]?.status || queryData.data?.status
                 
                 if (status === 'succeeded' || status === 'completed' || status === 'success') {
@@ -885,7 +886,8 @@ async function callNanoBananaAPI(params: {
                              return img.url || img
                          })
                     } else if (Array.isArray(queryData.data)) {
-                         images = queryData.data.map((item: any) => item.url || item.b64_json || item.image_url)
+                         // 有些接口直接在 data 数组里放结果
+                         images = queryData.data.map((item: any) => item.url || item.b64_json || item.image_url).filter((x: any) => x)
                     }
 
                     if (images && images.length > 0) {
@@ -896,7 +898,7 @@ async function callNanoBananaAPI(params: {
                 }
             } else {
                 const errText = await queryRes.text()
-                console.log(`[API Debug] Poll Error Body: ${errText.substring(0, 100)}`)
+                console.log(`[API Debug] Poll Error Body: ${errText.substring(0, 200)}`)
             }
         } catch (e) {
             console.warn(`[API Debug] Polling error:`, e)
