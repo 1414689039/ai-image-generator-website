@@ -37,9 +37,9 @@ if ($LASTEXITCODE -ne 0) {
     exit 1 
 }
 
-# 部署 (指定 --branch main 以确保是生产环境)
+# 部署 (指定 --branch HEAD 以匹配 Cloudflare 的 Production 配置)
 Write-Host "   - 正在上传到 Cloudflare..." -ForegroundColor Gray
-cmd /c "wrangler pages deploy dist --project-name ai-image-generator-frontend --branch main"
+cmd /c "wrangler pages deploy dist --project-name ai-image-generator-frontend --branch HEAD"
 if ($LASTEXITCODE -ne 0) { 
     Write-Error "❌ 前端部署失败"
     exit 1 
