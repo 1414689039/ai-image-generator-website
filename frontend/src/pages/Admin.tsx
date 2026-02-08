@@ -879,10 +879,15 @@ export default function Admin() {
                             onChange={e => setProviderModal({ ...providerModal, data: { ...providerModal.data, type: e.target.value } })}
                             className="w-full bg-black/20 border border-white/10 rounded p-2 text-white"
                           >
-                              <option value="openai">OpenAI (兼容)</option>
-                              <option value="nano-banana">Nano Banana / Gemini</option>
+                              <option value="openai">OpenAI (Standard Image API)</option>
+                              <option value="openai-chat">OpenAI Chat (Generic / OneAPI)</option>
+                              <option value="nano-banana">Nano Banana / Apimart</option>
                           </select>
-                          <p className="text-xs text-gray-500 mt-1">Nano Banana 类型支持特殊的 Gemini 3 Pro 逻辑</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                              {providerModal.data.type === 'openai-chat' ? '通过对话接口(Chat Completions)调用生图模型，适用于 OneAPI/NewAPI 等中转' : 
+                               providerModal.data.type === 'nano-banana' ? 'Apimart 专用优化 (Gemini 3 Pro Task 模式)' : 
+                               '标准 DALL-E 接口 (/v1/images/generations)'}
+                          </p>
                       </div>
                       <div>
                           <label className="block text-sm text-gray-400 mb-1">API Base URL</label>

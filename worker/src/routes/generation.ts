@@ -751,10 +751,13 @@ async function callNanoBananaAPI(params: {
   
   // 判断是否使用 Gemini 2.5 系列模型（需走 Chat Completions 接口）
   // 仅在 providerType 为 nano-banana 时生效
-  const isGeminiChatModel = providerType === 'nano-banana' && (params.model.startsWith('gemini-2.5') || params.model.includes('nano-banana'))
+  // 新增：如果 providerType 为 'openai-chat'，强制走 Chat 逻辑
+  const isGeminiChatModel = 
+      providerType === 'openai-chat' || 
+      (providerType === 'nano-banana' && (params.model.startsWith('gemini-2.5') || params.model.includes('nano-banana')))
 
   // 判断是否使用 Gemini 3 Pro (需走新的自定义 Images 接口)
-  // 仅在 providerType 为 nano-banana 时生效
+  // 仅在 providerType 为 nano-banana 时生效 (Apimart 专用)
   const isGemini3Pro = providerType === 'nano-banana' && params.model.includes('gemini-3-pro')
   
   // 1. Gemini 3 Pro 处理逻辑 (新接口，异步轮询)
@@ -891,7 +894,8 @@ async function callNanoBananaAPI(params: {
     const messages: any[] = []
     
     // 如果是 gemini-2.5-flash-image 或 nano-banana 或 gemini-3-pro，支持通过 system message 设置宽高比
-    if (params.model === 'gemini-2.5-flash-image' || params.model.includes('nano-banana') || params.model.includes('gemini-3-pro')) {
+    // 同时也对 openai-chat 类型启用此功能，以防万一
+    if (params.model === 'gemini-2.5-flash-image' || params.model.includes('nano-banana') || params.model.includes('gemini-3-pro') || providerType === 'openai-chat') {
        messages.push({
          role: 'system',
          content: JSON.stringify({ imageConfig: { aspectRatio } })
@@ -948,7 +952,7 @@ async function callNanoBananaAPI(params: {
     }
     
     // gemini-2.5-flash-image 支持 extra_body 配置宽高比
-    if (params.model === 'gemini-2.5-flash-image' || params.model.includes('nano-banana') || params.model.includes('gemini-3-pro')) {
+    if (params.model === 'gemini-2.5-flash-image' || params.model.includes('nano-banana') || params.model.includes('gemini-3-pro') || providerType === 'openai-chat') {
       requestBody.extra_body = {
         imageConfig: {
           aspectRatio
