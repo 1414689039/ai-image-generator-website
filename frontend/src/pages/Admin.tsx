@@ -430,6 +430,64 @@ export default function Admin() {
 
           {activeTab === 'settings' && (
             <div className="space-y-8">
+              {/* 模型供应商 (置顶) */}
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold">模型供应商 (多渠道切换)</h2>
+                    <button 
+                        onClick={() => setProviderModal({ show: true, data: { type: 'openai', modelsJson: '[]' } })}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-500 flex items-center"
+                    >
+                        <Plus size={16} className="mr-2" />
+                        添加供应商
+                    </button>
+                </div>
+                <div className="space-y-4">
+                  {providers.length === 0 && (
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded p-4 text-blue-300 text-sm">
+                          <p>👋 欢迎使用新的多渠道模型管理系统！</p>
+                          <p className="mt-1">您可以添加多个模型供应商（如 OpenAI, Gemini, NanoBanana 等），并随时切换当前使用的渠道。</p>
+                          <p className="mt-1">点击右上角“添加供应商”开始配置。</p>
+                      </div>
+                  )}
+                  {providers.map((p) => (
+                    <div key={p.id} className={`flex items-center justify-between p-4 border rounded bg-white/5 ${p.active ? 'border-green-500/50 bg-green-500/10' : 'border-white/10'}`}>
+                      <div>
+                        <div className="flex items-center gap-2">
+                            <p className="font-medium">{p.name}</p>
+                            {p.active && <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">当前使用</span>}
+                            <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{p.type}</span>
+                        </div>
+                        <p className="text-sm text-gray-400 mt-1">{p.baseUrl}</p>
+                        <p className="text-xs text-gray-500 mt-1">支持模型: {Array.isArray(p.models) ? p.models.map((m: any) => m.name).join(', ') : '无'}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {!p.active && (
+                            <button 
+                                onClick={() => handleActivateProvider(p.id)}
+                                className="px-3 py-1.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded hover:bg-green-600/30 transition-colors text-sm"
+                            >
+                                启用
+                            </button>
+                        )}
+                        <button 
+                            onClick={() => setProviderModal({ show: true, data: { ...p, modelsJson: JSON.stringify(p.models || [], null, 2) } })}
+                            className="px-3 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors text-sm"
+                        >
+                            编辑
+                        </button>
+                        <button 
+                            onClick={() => handleDeleteProvider(p.id)}
+                            className="px-3 py-1.5 bg-red-600/20 text-red-400 border border-red-600/30 rounded hover:bg-red-600/30 transition-colors text-sm"
+                        >
+                            删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* 系统维护开关 */}
               <div>
                 <h2 className="text-xl font-semibold mb-4">系统维护</h2>
@@ -553,57 +611,6 @@ export default function Admin() {
                             保存
                         </button>
                     </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold">模型供应商 (多渠道切换)</h2>
-                    <button 
-                        onClick={() => setProviderModal({ show: true, data: { type: 'openai', modelsJson: '[]' } })}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-500 flex items-center"
-                    >
-                        <Plus size={16} className="mr-2" />
-                        添加供应商
-                    </button>
-                </div>
-                <div className="space-y-4">
-                  {providers.length === 0 && <p className="text-gray-500">暂无供应商配置</p>}
-                  {providers.map((p) => (
-                    <div key={p.id} className={`flex items-center justify-between p-4 border rounded bg-white/5 ${p.active ? 'border-green-500/50 bg-green-500/10' : 'border-white/10'}`}>
-                      <div>
-                        <div className="flex items-center gap-2">
-                            <p className="font-medium">{p.name}</p>
-                            {p.active && <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">当前使用</span>}
-                            <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{p.type}</span>
-                        </div>
-                        <p className="text-sm text-gray-400 mt-1">{p.baseUrl}</p>
-                        <p className="text-xs text-gray-500 mt-1">支持模型: {Array.isArray(p.models) ? p.models.map((m: any) => m.name).join(', ') : '无'}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {!p.active && (
-                            <button 
-                                onClick={() => handleActivateProvider(p.id)}
-                                className="px-3 py-1.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded hover:bg-green-600/30 transition-colors text-sm"
-                            >
-                                启用
-                            </button>
-                        )}
-                        <button 
-                            onClick={() => setProviderModal({ show: true, data: { ...p, modelsJson: JSON.stringify(p.models || [], null, 2) } })}
-                            className="px-3 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors text-sm"
-                        >
-                            编辑
-                        </button>
-                        <button 
-                            onClick={() => handleDeleteProvider(p.id)}
-                            className="px-3 py-1.5 bg-red-600/20 text-red-400 border border-red-600/30 rounded hover:bg-red-600/30 transition-colors text-sm"
-                        >
-                            删除
-                        </button>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
 
