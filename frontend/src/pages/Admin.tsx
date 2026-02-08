@@ -886,7 +886,7 @@ export default function Admin() {
                           <p className="text-xs text-gray-500 mt-1">
                               {providerModal.data.type === 'openai-chat' ? '通过对话接口(Chat Completions)调用生图模型，适用于 OneAPI/NewAPI 等中转' : 
                                providerModal.data.type === 'nano-banana' ? 'Apimart 专用优化 (Gemini 3 Pro Task 模式)' : 
-                               '标准 DALL-E 接口 (/v1/images/generations)'}
+                               '标准 DALL-E 接口 (/v1/images/generations)。如果您使用第三方中转(NewAPI/OneAPI)调用 Gemini/Flux 等模型，请优先选择此类型。'}
                           </p>
                       </div>
                       <div>

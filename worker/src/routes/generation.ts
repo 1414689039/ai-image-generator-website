@@ -1037,8 +1037,14 @@ async function callNanoBananaAPI(params: {
        delete requestBody.response_format
        // 确保 quality 被移除
        delete requestBody.quality
-    } else {
+    } else if (params.model.includes('dall-e')) {
+       // 只有 DALL-E 模型才明确需要 quality
        requestBody.quality = params.quality === 'ultra_hd' ? 'hd' : 'standard'
+    } else {
+       // 对于其他模型（如 gemini-3-pro, flux, midjourney 等走标准 OpenAI 格式的），
+       // 通常不需要 quality 参数，甚至可能因为传了这个参数而报错
+       // 所以默认移除 quality
+       delete requestBody.quality
     }
 
     if (params.type === 'image_to_image' && params.referenceImageUrl) {
