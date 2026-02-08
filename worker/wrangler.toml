@@ -28,4 +28,7 @@ database_id = "4fd1ed63-08cb-497d-9cb3-4b2d34776e52" # 部署时需要填写实�
 
 [vars]
 NANO_BANANA_API_URL = "https://newapi.pockgo.com"
+ZPAY_PID = "2026012900294516"
+PAYMENT_API_URL = "https://zpayz.cn/submit.php"
+FRONTEND_URL = "https://ai-image-generator-frontend.pages.dev"
 

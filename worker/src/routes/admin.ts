@@ -187,9 +187,26 @@ adminRoutes.get('/generations', async (c: AuthContext) => {
   try {
     const page = parseInt(c.req.query('page') || '1')
     const limit = parseInt(c.req.query('limit') || '20')
+    const userId = c.req.query('userId')
     const offset = (page - 1) * limit
 
     const db = c.env.DB
+
+    let sql = `SELECT g.id, g.user_id, u.username, g.type, g.prompt, g.model, 
+              g.points_cost, g.status, g.created_at, g.result_urls
+       FROM generations g 
+       LEFT JOIN users u ON g.user_id = u.id 
+       WHERE 1=1`
+    
+    const params: any[] = []
+
+    if (userId) {
+      sql += ' AND g.user_id = ?'
+      params.push(parseInt(userId))
+    }
+
+    sql += ' ORDER BY g.created_at DESC LIMIT ? OFFSET ?'
+    params.push(limit, offset)
 
     const generations = await query<{
       id: number
@@ -201,27 +218,25 @@ adminRoutes.get('/generations', async (c: AuthContext) => {
       points_cost: number
       status: string
       created_at: string
-    }>(
-      db,
-      `SELECT g.id, g.user_id, u.username, g.type, g.prompt, g.model, 
-              g.points_cost, g.status, g.created_at 
-       FROM generations g 
-       LEFT JOIN users u ON g.user_id = u.id 
-       ORDER BY g.created_at DESC 
-       LIMIT ? OFFSET ?`,
-      [limit, offset]
-    )
+      result_urls: string
+    }>(db, sql, params)
 
     // 获取总数
-    const totalResult = await queryOne<{ count: number }>(
-      db,
-      'SELECT COUNT(*) as count FROM generations'
-    )
+    let countSql = 'SELECT COUNT(*) as count FROM generations WHERE 1=1'
+    const countParams: any[] = []
+
+    if (userId) {
+      countSql += ' AND user_id = ?'
+      countParams.push(parseInt(userId))
+    }
+
+    const totalResult = await queryOne<{ count: number }>(db, countSql, countParams)
 
     return c.json({
       generations: generations.map((g) => ({
         ...g,
         points_cost: parseFloat(g.points_cost.toString()),
+        result_urls: g.result_urls ? JSON.parse(g.result_urls) : []
       })),
       total: totalResult?.count || 0,
       page,
@@ -375,6 +390,54 @@ adminRoutes.put('/point-rules/:id', async (c: AuthContext) => {
 })
 
 /**
+ * 获取系统配置 (定价)
+ * GET /api/admin/config
+ */
+adminRoutes.get('/config', async (c: AuthContext) => {
+    const db = c.env.DB
+    try {
+        const configs = await query<{key: string, value: string}>(
+            db, 
+            "SELECT key, value FROM system_configs"
+        )
+        // 转换为对象格式
+        const configMap: Record<string, any> = {}
+        configs.forEach(cfg => {
+            configMap[cfg.key] = cfg.value
+        })
+        return c.json({ config: configMap }) // 统一包装在 config 字段中
+    } catch (e: any) {
+        return c.json({ error: '获取配置失败', message: e.message }, 500)
+    }
+})
+
+/**
+ * 更新系统配置
+ * POST /api/admin/config
+ */
+adminRoutes.post('/config', async (c: AuthContext) => {
+    const db = c.env.DB
+    const body = await c.req.json()
+    
+    try {
+        // 遍历更新
+        const keys = Object.keys(body)
+        for (const key of keys) {
+            // UPSERT
+            await execute(
+                db, 
+                `INSERT INTO system_configs (key, value) VALUES (?, ?) 
+                 ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+                [key, body[key].toString(), body[key].toString()]
+            )
+        }
+        return c.json({ success: true })
+    } catch (e: any) {
+        return c.json({ error: '更新配置失败', message: e.message }, 500)
+    }
+})
+
+/**
  * 获取系统统计信息
  * GET /api/admin/stats
  */
@@ -382,27 +445,106 @@ adminRoutes.get('/stats', async (c: AuthContext) => {
   try {
     const db = c.env.DB
 
-    const [
-      totalUsers,
-      totalOrders,
-      totalGenerations,
-      totalRevenue,
-    ] = await Promise.all([
-      queryOne<{ count: number }>(db, 'SELECT COUNT(*) as count FROM users'),
-      queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM orders WHERE payment_status = 'paid'"),
-      queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM generations WHERE status = 'completed'"),
-      queryOne<{ sum: number }>(db, "SELECT SUM(amount) as sum FROM orders WHERE payment_status = 'paid'"),
-    ])
+    // 1. 用户总数
+    const userResult = await queryOne<{ count: number }>(db, 'SELECT COUNT(*) as count FROM users')
+    
+    // 2. 总收入 (orders 表已支付总额)
+    const revenueResult = await queryOne<{ total: number }>(
+        db, 
+        "SELECT SUM(amount) as total FROM orders WHERE payment_status = 'paid'"
+    )
+
+    // 3. 总 API 成本 (generations 表 api_cost 总和)
+    // 确保 api_cost 列存在 (已通过 migration 添加)
+    let costResult = { total: 0 }
+    try {
+        costResult = await queryOne<{ total: number }>(
+            db, 
+            "SELECT SUM(api_cost) as total FROM generations WHERE status = 'completed'"
+        ) || { total: 0 }
+    } catch (e) {
+        // 如果列不存在忽略
+    }
+
+    // 4. 总积分消耗
+    const pointsResult = await queryOne<{ total: number }>(
+        db,
+        "SELECT SUM(points_cost) as total FROM generations WHERE status = 'completed'"
+    )
+    
+    // 5. 总订单数
+    const ordersResult = await queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM orders WHERE payment_status = 'paid'")
+    
+    // 6. 总生成数
+    const genResult = await queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM generations WHERE status = 'completed'")
 
     return c.json({
-      totalUsers: totalUsers?.count || 0,
-      totalOrders: totalOrders?.count || 0,
-      totalGenerations: totalGenerations?.count || 0,
-      totalRevenue: totalRevenue?.sum ? parseFloat(totalRevenue.sum.toString()) : 0,
+      totalUsers: userResult?.count || 0,
+      totalOrders: ordersResult?.count || 0,
+      totalGenerations: genResult?.count || 0,
+      totalRevenue: revenueResult?.total || 0, // CNY
+      totalCost: costResult?.total || 0,       // USD
+      totalPointsConsumed: pointsResult?.total || 0
     })
   } catch (error: any) {
     console.error('Get stats error:', error)
     return c.json({ error: '获取统计信息失败', message: error.message }, 500)
   }
 })
+
+/**
+ * 删除用户
+ * DELETE /api/admin/users/:id
+ */
+adminRoutes.delete('/users/:id', async (c: AuthContext) => {
+  try {
+    const userId = parseInt(c.req.param('id'))
+    const db = c.env.DB
+
+    // 1. 删除用户相关数据 (级联删除逻辑)
+    // 注意：实际生产中可能需要软删除，或者更复杂的清理逻辑
+    // 这里简化处理：删除关联表数据，最后删除用户
+    
+    // 删除关联的分享点赞
+    await execute(db, 'DELETE FROM gallery_likes WHERE user_id = ?', [userId])
+    // 删除关联的分享解锁
+    await execute(db, 'DELETE FROM gallery_unlocks WHERE user_id = ?', [userId])
+    // 删除积分流水
+    await execute(db, 'DELETE FROM point_transactions WHERE user_id = ?', [userId])
+    // 删除订单
+    await execute(db, 'DELETE FROM orders WHERE user_id = ?', [userId])
+    // 删除生成记录
+    await execute(db, 'DELETE FROM generations WHERE user_id = ?', [userId])
+    
+    // 2. 删除用户
+    await execute(db, 'DELETE FROM users WHERE id = ?', [userId])
+
+    return c.json({ success: true, message: '用户已删除' })
+  } catch (error: any) {
+    console.error('Delete user error:', error)
+    return c.json({ error: '删除用户失败', message: error.message }, 500)
+  }
+})
+
+/**
+ * 删除生成记录 (下架/删除)
+ * DELETE /api/admin/generations/:id
+ */
+adminRoutes.delete('/generations/:id', async (c: AuthContext) => {
+  try {
+    const genId = parseInt(c.req.param('id'))
+    const db = c.env.DB
+
+    // 物理删除
+    await execute(db, 'DELETE FROM gallery_likes WHERE generation_id = ?', [genId])
+    await execute(db, 'DELETE FROM gallery_unlocks WHERE generation_id = ?', [genId])
+    await execute(db, 'DELETE FROM generations WHERE id = ?', [genId])
+
+    return c.json({ success: true, message: '记录已删除' })
+  } catch (error: any) {
+    console.error('Delete generation error:', error)
+    return c.json({ error: '删除记录失败', message: error.message }, 500)
+  }
+})
+
 

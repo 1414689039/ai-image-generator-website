@@ -22,6 +22,12 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    // 维护模式拦截
+    if (error.response?.status === 503 && error.response?.data?.maintenance) {
+        window.location.href = '/maintenance'
+        return Promise.reject(error)
+    }
+
     if (error.response?.status === 401) {
       // token过期或无效，清除本地存储并跳转到登录页
       localStorage.removeItem('token')
