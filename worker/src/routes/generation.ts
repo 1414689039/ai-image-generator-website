@@ -1054,6 +1054,10 @@ async function callNanoBananaAPI(params: {
         }
     }
 
+    // console.log(`[API Debug] Calling ${endpoint} with model ${params.model}`)
+    // console.log(`[API Debug] Request Body:`, JSON.stringify(requestBody, null, 2))
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Calling ${endpoint}`, { model: params.model, body: requestBody })
+
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -1066,6 +1070,7 @@ async function callNanoBananaAPI(params: {
 
     if (!response.ok) {
         const errorText = await response.text()
+        if (params.db) await logSystem(params.db, 'ERROR', 'API_DEBUG', `API Submit Failed: ${response.status}`, errorText)
         let errorMessage = `API Status: ${response.status}`
         try {
         const errorJson = JSON.parse(errorText)
@@ -1081,6 +1086,8 @@ async function callNanoBananaAPI(params: {
     }
 
     const data: any = await response.json()
+    // console.log(`[API Debug] Submit Response:`, JSON.stringify(data, null, 2))
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Submit Response`, data)
     
     if (data.data && Array.isArray(data.data)) {
         return {
