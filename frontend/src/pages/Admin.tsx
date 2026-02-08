@@ -57,14 +57,24 @@ export default function Admin() {
           setGenTotal(genRes.data.total || 0)
           break
         case 'settings':
-          const [rulesRes, statsRes, configRes] = await Promise.all([
-            apiClient.get('/admin/point-rules'),
-            apiClient.get('/admin/stats'),
-            apiClient.get('/admin/config'),
-          ])
-          setPointRules(rulesRes.data.rules || [])
-          setStats(statsRes.data || {})
-          setConfig(configRes.data.config || {})
+          try {
+              const [rulesRes, statsRes, configRes] = await Promise.allSettled([
+                apiClient.get('/admin/point-rules'),
+                apiClient.get('/admin/stats'),
+                apiClient.get('/admin/config'),
+              ])
+              
+              if (rulesRes.status === 'fulfilled') setPointRules(rulesRes.value.data.rules || [])
+              if (statsRes.status === 'fulfilled') setStats(statsRes.value.data || {})
+              if (configRes.status === 'fulfilled') {
+                  setConfig(configRes.value.data.config || {})
+                  console.log('Config loaded:', configRes.value.data.config)
+              } else {
+                  console.error('Config load failed:', configRes.reason)
+              }
+          } catch (e) {
+              console.error('Settings load error:', e)
+          }
           break
       }
     } catch (error) {
@@ -196,7 +206,10 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-transparent pt-20 pb-10">
       <div className="container mx-auto px-4">
-        <h1 className="text-3xl font-bold mb-6 text-white">管理员面板</h1>
+        <div className="flex items-center gap-4 mb-6">
+            <h1 className="text-3xl font-bold text-white">管理员面板</h1>
+            <span className="px-2 py-1 rounded bg-blue-600/20 text-blue-400 text-xs border border-blue-600/30">v1.2</span>
+        </div>
 
         {/* 标签页 */}
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg shadow-lg mb-6">
