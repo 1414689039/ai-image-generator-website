@@ -51,6 +51,41 @@ export default function PreviewArea({ images, onDelete, onShare, status, error, 
     )
   }
 
+  if (status === 'pending') {
+    return (
+      <div className="h-full w-full flex flex-col items-center justify-center bg-transparent overflow-hidden p-4">
+        <div className="relative w-full max-w-[1200px] h-full md:h-auto md:aspect-[21/9] flex flex-col items-center justify-center border-2 border-dashed border-blue-500/30 rounded-xl bg-blue-900/10 backdrop-blur-sm overflow-hidden">
+            {/* 背景动态光效 */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 via-purple-500/10 to-pink-500/10 animate-pulse" />
+            
+            <div className="relative z-10 flex flex-col items-center">
+                <div className="relative">
+                    {/* 中心旋转光圈 */}
+                    <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full animate-pulse" />
+                    <Sparkles className="h-16 w-16 text-blue-400 animate-spin-slow" />
+                </div>
+                
+                <h3 className="mt-6 text-xl font-medium text-white/90">AI 正在绘制中...</h3>
+                <p className="mt-2 text-blue-200/60 text-sm animate-pulse">
+                    正在捕捉灵感，即将为您呈现
+                </p>
+                
+                {/* 模拟进度条 */}
+                <div className="mt-8 w-64 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 w-1/3 animate-[loading_2s_ease-in-out_infinite]" />
+                </div>
+                
+                {prompt && (
+                    <p className="mt-6 text-xs text-gray-400 max-w-md text-center px-4 line-clamp-2 italic">
+                        "{prompt}"
+                    </p>
+                )}
+            </div>
+        </div>
+      </div>
+    )
+  }
+
   if (images.length === 0) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-transparent overflow-hidden p-4">

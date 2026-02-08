@@ -196,13 +196,13 @@ export default function HistoryPanel({ history, onSelect, onRefresh, viewMode = 
               <div
                 key={item.id}
                 className={`flex-shrink-0 w-20 h-20 relative rounded-xl overflow-hidden border cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-blue-500/20 group ${
-                    item.status === 'pending' ? 'border-blue-500/50 ring-2 ring-blue-500/20' : 
+                    item.status === 'pending' ? 'border-blue-500/50 ring-2 ring-blue-500/20 animate-pulse' : 
                     item.status === 'failed' || errorIds.has(item.id) ? 'border-red-500/50' : 
                     'border-white/10 hover:border-white/30'
                 }`}
                 title={statusInfo?.fullText} 
                 onClick={() => {
-                  if (item.status === 'completed' || item.status === 'failed') {
+                  if (item.status === 'completed' || item.status === 'failed' || item.status === 'pending') {
                     onSelect(item)
                   }
                 }}
