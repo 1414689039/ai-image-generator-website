@@ -43,18 +43,29 @@ export default function HistoryPanel({ history, onSelect, onRefresh, viewMode = 
   useEffect(() => {
     // 过滤掉临时项，避免对不存在的ID发起请求
     const pendingItems = history.filter(item => item.status === 'pending' && !item.isTemp)
+    
     if (pendingItems.length > 0) {
-      const interval = setInterval(async () => {
-        // 使用 Promise.all 等待所有检查请求完成
+      let intervalTime = 3000 // 初始间隔 3s
+      let timer: any = null
+
+      const runCheck = async () => {
         try {
             await Promise.all(pendingItems.map(item => checkStatus(item)))
-            // 检查完成后再刷新列表
             onRefresh?.()
         } catch (error) {
             console.error('Auto check status failed:', error)
         }
-      }, 5000)
-      return () => clearInterval(interval)
+        
+        // 动态调整下一次轮询时间 (简单退避策略)
+        // 每次增加 1s，最大 10s
+        intervalTime = Math.min(intervalTime + 1000, 10000)
+        timer = setTimeout(runCheck, intervalTime)
+      }
+
+      // 立即启动第一次
+      timer = setTimeout(runCheck, intervalTime)
+      
+      return () => clearTimeout(timer)
     }
   }, [history, onRefresh])
 

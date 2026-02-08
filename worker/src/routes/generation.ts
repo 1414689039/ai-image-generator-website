@@ -846,77 +846,10 @@ async function callNanoBananaAPI(params: {
     }
 
     // 开始轮询
-    // console.log(`[API Debug] Task ID: ${taskId}, starting polling...`)
-    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Task ID: ${taskId}, starting polling...`)
-    const maxRetries = 5 // 只轮询5次 (约15秒)，避免 Worker 超时。如果还没好，返回 taskId 让前端轮询
-    const interval = 3000 // 每次间隔 3 秒
+    // 优化：移除提交时的忙等轮询，直接返回 TaskID，交由前端接力轮询
+    // 这对于耗时较长（如 >15s）的任务能显著减少 Worker 资源占用
+    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Task ID: ${taskId}, initial submit success. Returning to client for polling.`)
     
-    for (let i = 0; i < maxRetries; i++) {
-        // 等待
-        await new Promise(r => setTimeout(r, interval))
-        
-        // 尝试查询任务状态
-        // 根据抓包分析，查询路径应为 /v1/tasks/{taskId}
-        const queryUrl = `${cleanBaseUrl}/v1/tasks/${taskId}`
-        
-        // console.log(`[API Debug] Polling URL: ${queryUrl}`)
-        
-        try {
-            const queryRes = await fetch(queryUrl, {
-                headers: { 
-                    'Authorization': `Bearer ${params.apiKey}`,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
-            })
-            
-            // console.log(`[API Debug] Poll Status: ${queryRes.status}`)
-            
-            if (queryRes.ok) {
-                const queryData: any = await queryRes.json()
-                // console.log(`[API Debug] Poll Data:`, JSON.stringify(queryData).substring(0, 500)) // 打印前500字符
-                if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Poll Data (Attempt ${i+1})`, queryData)
-
-                // 检查状态
-                // 兼容多种状态字段位置
-                const status = queryData.status || queryData.data?.[0]?.status || queryData.data?.status
-                
-                if (status === 'succeeded' || status === 'completed' || status === 'success') {
-                    // 提取图片
-                    let images: string[] = []
-                    
-                    // 尝试从不同位置提取结果
-                    const resultObj = queryData.result || queryData.data?.result || queryData.data
-
-                    if (resultObj?.images) {
-                         images = resultObj.images.map((img: any) => {
-                             if (Array.isArray(img.url)) return img.url[0]
-                             return img.url || img
-                         })
-                    } else if (Array.isArray(queryData.data)) {
-                         // 有些接口直接在 data 数组里放结果
-                         images = queryData.data.map((item: any) => item.url || item.b64_json || item.image_url).filter((x: any) => x)
-                    }
-
-                    if (images && images.length > 0) {
-                        return { images, taskId, status: 'completed' }
-                    }
-                } else if (status === 'failed') {
-                    throw new Error(`Task failed: ${queryData.error || 'Unknown error'}`)
-                }
-            } else {
-                const errText = await queryRes.text()
-                // console.log(`[API Debug] Poll Error Body: ${errText.substring(0, 200)}`)
-                if (params.db) await logSystem(params.db, 'WARN', 'API_DEBUG', `Poll Error Body`, errText)
-            }
-        } catch (e) {
-            console.warn(`[API Debug] Polling error:`, e)
-            if (params.db) await logSystem(params.db, 'WARN', 'API_DEBUG', `Polling error`, e)
-        }
-    }
-    
-    // console.log(`[API Debug] Task ${taskId} still pending after initial polling.`)
-    if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Task ${taskId} still pending after initial polling.`)
     return { images: [], taskId, status: 'pending' }
   }
 
