@@ -121,20 +121,44 @@ export default function Home() {
     }
     
     setGenerationHistory(prev => [...tempItems, ...prev])
+    
+    // 移动端：立即跳转到预览 Tab 并选中第一个临时项，以展示生图动画
+    if (tempItems.length > 0) {
+        setSelectedGenerationId(tempItems[0].id)
+        setActiveTab('preview')
+    }
 
     try {
       const response = await apiClient.post('/generation/create', generationData)
       
-      // 请求成功后，刷新列表以获取真实数据（这将替换掉临时项）
-      loadHistory(true)
+      const realIds = response.data.generationIds || []
+      
+      // 更新本地临时项的 ID，防止 flicker
+      if (realIds.length > 0) {
+           setGenerationHistory(prev => {
+               const newHistory = [...prev]
+               // 假设服务器返回的 ID 顺序与 tempItems 一致
+               tempItems.forEach((temp, idx) => {
+                   if (realIds[idx]) {
+                       const index = newHistory.findIndex(h => h.id === temp.id)
+                       if (index !== -1) {
+                           newHistory[index] = { ...newHistory[index], id: realIds[idx] }
+                       }
+                   }
+               })
+               return newHistory
+           })
+           // 更新当前选中的 ID 为真实 ID
+           setSelectedGenerationId(realIds[0])
+      }
+
+      // 请求成功后，刷新列表以获取真实数据
+      await loadHistory(true)
       fetchUserInfo()
       
-      if (response.data.generationIds && response.data.generationIds.length > 0) {
-        // 选中第一个新生成的任务
-        setSelectedGenerationId(response.data.generationIds[0])
-        // 移动端：生成成功后，保持在当前 Tab 或跳转到 History 看状态
-        // 优化体验：跳转到 History Tab 显示排队状态，而不是 Preview (因为此时还没图)
-        setActiveTab('history')
+      if (realIds.length > 0) {
+        // 确保移动端停留在预览 Tab (之前已经设置过，这里再次确认)
+        setActiveTab('preview')
       }
     } catch (error: any) {
       // 失败时移除临时项

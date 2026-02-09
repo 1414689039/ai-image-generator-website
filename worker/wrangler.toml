@@ -2,6 +2,10 @@ name = "ai-image-generator-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
+# 启用 Workers Logs
+[observability]
+enabled = true
+
 # D1数据库配置
 [[d1_databases]]
 binding = "DB"
@@ -10,9 +14,13 @@ database_id = "4fd1ed63-08cb-497d-9cb3-4b2d34776e52" # 部署时需要填写实�
 # 本地开发时，Wrangler 会自动创建数据库
 
 # R2存储配置（用于存储上传的参考图）
-# [[r2_buckets]]
-# binding = "IMAGES"
-# bucket_name = "ai-image-uploads"
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "ai-image-uploads-apac"
+
+[[r2_buckets]]
+binding = "IMAGES_OLD"
+bucket_name = "ai-image-uploads"
 
 # KV存储配置（可选，用于缓存）
 # 本地开发时不需要KV，部署时取消注释并填写id
@@ -30,5 +38,4 @@ database_id = "4fd1ed63-08cb-497d-9cb3-4b2d34776e52" # 部署时需要填写实�
 NANO_BANANA_API_URL = "https://newapi.pockgo.com"
 ZPAY_PID = "2026012900294516"
 PAYMENT_API_URL = "https://zpayz.cn/submit.php"
-FRONTEND_URL = "https://ai-image-generator-frontend.pages.dev"
-
+FRONTEND_URL = "https://mileguo.top"

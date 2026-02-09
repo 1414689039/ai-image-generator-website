@@ -270,6 +270,7 @@ generationRoutes.post('/create', async (c: AuthContext) => {
                     quantity: 1, // 强制单次只请求1张
                     size,
                     resolution,
+                    imageHostOrigin: new URL(c.req.url).origin,
                   })
 
                   // 如果返回了 taskId，先更新到数据库
@@ -298,12 +299,22 @@ generationRoutes.post('/create', async (c: AuthContext) => {
                       }
                   }
 
+                  // 转存图片到 R2
+                  let finalImages = apiResponse.images
+                  if (imagesBucket) {
+                      try {
+                          finalImages = await processAndUploadImages(apiResponse.images, generationId, imagesBucket)
+                      } catch (uploadErr) {
+                          console.error('Failed to upload sync images to R2:', uploadErr)
+                      }
+                  }
+
                   await execute(
                     db,
                     `UPDATE generations 
                      SET status = 'completed', result_urls = ?, api_cost = ?
                      WHERE id = ?`,
-                    [JSON.stringify(apiResponse.images), apiCost, generationId]
+                    [JSON.stringify(finalImages), apiCost, generationId]
                   )
               } catch (apiError: any) {
                   console.error(`Generation failed for ID ${generationId}:`, apiError)
@@ -516,6 +527,7 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
                     if (!res.ok) {
                          const errorText = await res.text()
                          console.error(`Check status failed for ${tid}: ${res.status} ${errorText}`)
+                         await logSystem(db, 'ERROR', 'ZX2_CHECK_FAIL', `HTTP ${res.status}`, errorText)
                          if (res.status >= 400 && res.status < 500) {
                              return { status: 'failed', error: `API Error ${res.status}` }
                          }
@@ -523,37 +535,48 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
                     }
                     
                     const data: any = await res.json()
-                    // ZX2 响应格式未知，假设 data.data.status 或 data.data.url
-                    // 根据文档: "生成的图片 务必及时保存"
-                    // 猜测成功时返回 { code: 0, data: { status: "success", url: "..." } } 
-                    // 或者直接 { code: 0, data: { url: "..." } }
-                    
+                    // Log the full response for debugging
+                    await logSystem(db, 'INFO', 'ZX2_CHECK_RESP', `Response for ${tid}`, data)
+
                     if (data.code !== 0) {
-                        // 可能是还在处理中? 文档没说 code!=0 是处理中还是失败
-                        // 通常 code != 0 是错误
-                        // 但如果正在处理，可能返回特定 code
-                        // 暂时假设 code != 0 且 msg 包含 "processing" 是处理中
-                        // 修正：增加中文关键词支持 "生成中", "稍后"
                         const msg = (data.msg || '').toLowerCase()
-                        if (msg.includes('processing') || msg.includes('pending') || msg.includes('queue') || msg.includes('生成中') || msg.includes('稍后')) {
+                        // 宽容判断处理中状态
+                        if (msg.includes('processing') || msg.includes('pending') || msg.includes('queue') || msg.includes('生成中') || msg.includes('稍后') || msg.includes('wait')) {
                             return { status: 'pending', progress: 50 }
                         }
                         return { status: 'failed', error: data.msg || 'Unknown error' }
                     }
                     
-                    // 成功
-                    // 修正：ZX2 成功时直接在根对象返回 url，或者在 data.url
-                    const imgUrl = data.url || data.data?.url || data.data?.image_url || data.data?.images?.[0]
+                    // 成功 - 尝试多种路径获取 URL
+                    let imgUrl = data.url || data.data?.url || data.data?.image_url || data.data?.images?.[0]
+                    
+                    // 如果标准路径没找到，尝试深度搜索任何 http 开头的字符串
+                    if (!imgUrl) {
+                        const findUrl = (obj: any): string | null => {
+                            if (!obj) return null
+                            if (typeof obj === 'string' && obj.startsWith('http')) return obj
+                            if (typeof obj === 'object') {
+                                for (const key in obj) {
+                                    const found = findUrl(obj[key])
+                                    if (found) return found
+                                }
+                            }
+                            return null
+                        }
+                        imgUrl = findUrl(data)
+                    }
+
                     if (imgUrl) {
                         return { status: 'success', progress: 100, images: [imgUrl] }
                     }
                     
-                    // 如果没有 url，可能是还在处理?
-                    // 这是一个不确定的地方，先假设没有 url 就是 pending
+                    // 如果 code=0 但找不到 URL，记录警告并返回 pending (防止误判失败)
+                    await logSystem(db, 'WARN', 'ZX2_NO_URL', `Success code but no URL found for ${tid}`, data)
                     return { status: 'pending', progress: 50 }
                     
-                } catch (e) {
+                } catch (e: any) {
                     console.error(`ZX2 Check error for ${tid}:`, e)
+                    await logSystem(db, 'ERROR', 'ZX2_CHECK_ERR', `Exception for ${tid}`, e.message || e)
                     return null
                 }
             }
@@ -663,12 +686,26 @@ generationRoutes.get('/check/:id', async (c: AuthContext) => {
         
         if (completedCount > 0) {
              // 完成
+             // 转存图片到 R2
+             const imagesBucket = c.env.IMAGES
+             let finalImages = allImages
+             
+             if (imagesBucket) {
+                 try {
+                     // 异步执行转存，但在此处等待以确保数据库更新的是新链接
+                     finalImages = await processAndUploadImages(allImages, generationId, imagesBucket)
+                 } catch (uploadErr) {
+                     console.error('Failed to upload images to R2:', uploadErr)
+                     // 失败则继续使用原始链接
+                 }
+             }
+
              await execute(
                  db,
                  `UPDATE generations SET status = 'completed', result_urls = ?, progress = 100 WHERE id = ?`,
-                 [JSON.stringify(allImages), generationId]
+                 [JSON.stringify(finalImages), generationId]
              )
-             return c.json({ status: 'completed', progress: 100, result_urls: allImages })
+             return c.json({ status: 'completed', progress: 100, result_urls: finalImages })
         }
         
         if (failedCount === taskIds.length) {
@@ -831,6 +868,81 @@ generationRoutes.get('/history', async (c: AuthContext) => {
       return c.json({ error: '删除失败', message: error.message }, 500)
     }
   })
+
+/**
+ * 辅助函数：处理并上传生成的图片到 R2
+ * 
+ * 遍历图片URL列表，将图片下载并上传到 R2，返回新的 R2 链接列表。
+ * 如果某个图片下载或上传失败，则保留原始链接作为降级。
+ */
+async function processAndUploadImages(
+  images: string[],
+  generationId: string | number,
+  bucket?: R2Bucket
+): Promise<string[]> {
+  if (!bucket || !images || images.length === 0) {
+      return images
+  }
+
+  const processedImages: string[] = []
+
+  for (let i = 0; i < images.length; i++) {
+      const originalUrl = images[i]
+      
+      // 如果已经是本站链接（例如已经是 /images/ 开头），则跳过
+      if (originalUrl.startsWith('/images/')) {
+          processedImages.push(originalUrl)
+          continue
+      }
+      
+      try {
+          // 下载图片
+          const response = await fetch(originalUrl, {
+              headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+              },
+              signal: AbortSignal.timeout(30000) // 30秒超时
+          })
+
+          if (!response.ok) {
+              console.warn(`Failed to download image from ${originalUrl}: ${response.status}`)
+              processedImages.push(originalUrl) // 降级：使用原链接
+              continue
+          }
+
+          const blob = await response.blob()
+          const arrayBuffer = await blob.arrayBuffer()
+          const buffer = new Uint8Array(arrayBuffer)
+          
+          // 确定文件扩展名
+          let ext = 'png' // 默认
+          const contentType = response.headers.get('content-type')
+          if (contentType) {
+              if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg'
+              else if (contentType.includes('webp')) ext = 'webp'
+          }
+
+          // 生成 R2 文件名
+          // 格式: gen_{generationId}_{index}_{timestamp}.{ext}
+          const fileName = `gen_${generationId}_${i}_${Date.now()}.${ext}`
+
+          // 上传到 R2
+          await bucket.put(fileName, buffer, {
+              httpMetadata: { contentType: contentType || `image/${ext}` }
+          })
+
+          // 生成公开访问链接
+          processedImages.push(`/images/${fileName}`)
+          
+      } catch (error) {
+          console.error(`Error processing image ${originalUrl}:`, error)
+          processedImages.push(originalUrl) // 降级：使用原链接
+      }
+  }
+
+  return processedImages
+}
+
   
   /**
    * 调用Nano Banana API的辅助函数
@@ -844,6 +956,9 @@ async function callNanoBananaAPI(params: {
   prompt: string
   referenceImageUrl?: string | null
   referenceImageBase64?: string
+  referenceImageUrls?: string[]
+  referenceImageBase64s?: string[]
+  imageHostOrigin?: string
   model: string
   width: number
   height: number
@@ -913,20 +1028,27 @@ async function callNanoBananaAPI(params: {
       urls: []
     }
 
-    // 处理参考图
-    if (params.referenceImageBase64) {
-        // 优先使用 Base64
-        let imageUrl = params.referenceImageBase64
-        if (!imageUrl.startsWith('data:image')) {
-            imageUrl = `data:image/jpeg;base64,${imageUrl}`
-        }
-        // ZX2 可能不支持 Base64 URL，但既然是 urls 字段，我们尝试放进去
-        // 建议：如果ZX2只支持http链接，这里可能需要上传到 R2 后给公开链接
-        // 目前先兼容 Base64
-        requestBody.urls = [imageUrl]
-    } else if (params.referenceImageUrl && params.referenceImageUrl.startsWith('http')) {
-        requestBody.urls = [params.referenceImageUrl]
+    // 处理参考图，优先使用可访问的 HTTP(S) 链接
+    let resolvedUrls: string[] = []
+    if (params.referenceImageUrls && params.referenceImageUrls.length > 0) {
+      resolvedUrls = params.referenceImageUrls.map((u) => {
+        if (u.startsWith('/') && params.imageHostOrigin) return `${params.imageHostOrigin}${u}`
+        return u
+      })
+    } else if (params.referenceImageUrl) {
+      let u = params.referenceImageUrl
+      if (u.startsWith('/') && params.imageHostOrigin) u = `${params.imageHostOrigin}${u}`
+      resolvedUrls = [u]
+    } else if (params.referenceImageBase64s && params.referenceImageBase64s.length > 0) {
+      let b64 = params.referenceImageBase64s[0]
+      if (!b64.startsWith('data:image')) b64 = `data:image/jpeg;base64,${b64}`
+      resolvedUrls = [b64]
+    } else if (params.referenceImageBase64) {
+      let b64 = params.referenceImageBase64
+      if (!b64.startsWith('data:image')) b64 = `data:image/jpeg;base64,${b64}`
+      resolvedUrls = [b64]
     }
+    requestBody.urls = resolvedUrls
 
     if (params.db) await logSystem(params.db, 'INFO', 'API_DEBUG', `Calling ${endpoint}`, { model: params.model, body: requestBody })
 

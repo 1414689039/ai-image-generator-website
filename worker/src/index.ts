@@ -8,6 +8,7 @@ import { adminRoutes } from './routes/admin'
 import { paymentRoutes } from './routes/payment'
 import { messageRoutes } from './routes/message'
 import { proxyRoutes } from './routes/proxy'
+import { imagesRoutes } from './routes/images'
 import { authMiddleware } from './middleware/auth'
 import { adminMiddleware } from './middleware/admin'
 import { query, queryOne } from './utils/db'
@@ -16,6 +17,7 @@ import { query, queryOne } from './utils/db'
 type Env = {
   DB: D1Database
   IMAGES: R2Bucket
+  IMAGES_OLD?: R2Bucket
   CACHE?: KVNamespace
   NANO_BANANA_API_KEY?: string
   NANO_BANANA_API_URL?: string
@@ -143,6 +145,7 @@ app.route('/api/user', userRoutes)
 app.route('/api/payment', paymentRoutes)
 app.route('/api/message', messageRoutes)
 app.route('/api/proxy', proxyRoutes)
+app.route('/images', imagesRoutes)
 
 // 管理员路由
 app.use('/api/admin/*', adminMiddleware)

@@ -18,7 +18,7 @@ export default function Login() {
 
     try {
       await login(username, password)
-      navigate('/')
+      navigate('/gallery')
     } catch (err: any) {
       setError(err.message)
     } finally {
