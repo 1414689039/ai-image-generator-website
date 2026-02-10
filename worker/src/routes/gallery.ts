@@ -43,6 +43,7 @@ galleryRoutes.get('/list', async (c) => {
       g.user_id, 
       u.username as author_name,
       g.prompt, 
+      g.reference_image_url,
       g.model, 
       g.width, 
       g.height, 
@@ -67,14 +68,34 @@ galleryRoutes.get('/list', async (c) => {
   const items = await query<any>(db, sql, params)
   
   // 处理数据格式
-  const formattedItems = items.map(item => ({
-    ...item,
-    result_urls: typeof item.result_urls === 'string' ? JSON.parse(item.result_urls) : item.result_urls,
-    is_liked: item.is_liked > 0,
-    is_unlocked: item.is_unlocked > 0,
-    likes_count: item.likes_count || 0,
-    purchases_count: item.purchases_count || 0
-  }))
+  const formattedItems = items.map(item => {
+    // 解析 reference_image_url
+    let parsedRefImages: string[] = []
+    if (item.reference_image_url) {
+        try {
+            // 尝试解析为 JSON 数组
+            const parsed = JSON.parse(item.reference_image_url)
+            if (Array.isArray(parsed)) {
+                parsedRefImages = parsed
+            } else {
+                parsedRefImages = [item.reference_image_url]
+            }
+        } catch (e) {
+            parsedRefImages = [item.reference_image_url]
+        }
+    }
+
+    return {
+        ...item,
+        result_urls: typeof item.result_urls === 'string' ? JSON.parse(item.result_urls) : item.result_urls,
+        is_liked: item.is_liked > 0,
+        is_unlocked: item.is_unlocked > 0,
+        likes_count: item.likes_count || 0,
+        purchases_count: item.purchases_count || 0,
+        // 返回标准化的数组
+        reference_image_urls: parsedRefImages
+    }
+  })
 
   return c.json({ items: formattedItems })
 })
@@ -178,15 +199,69 @@ galleryRoutes.delete('/:id', async (c: AuthContext) => {
     const generationId = parseInt(c.req.param('id'))
     const db = c.env.DB
 
-    const gen = await queryOne<{user_id: number}>(db, 'SELECT user_id FROM generations WHERE id = ?', [generationId])
-    if (!gen || gen.user_id !== user.userId) {
+    const gen = await queryOne<{user_id: number, result_urls: string}>(db, 'SELECT user_id, result_urls FROM generations WHERE id = ?', [generationId])
+    
+    // 允许拥有者或管理员删除
+    if (!gen || (gen.user_id !== user.userId && !user.isAdmin)) {
         return c.json({ error: 'Permission denied' }, 403)
     }
 
     // 物理删除
-    await execute(db, 'DELETE FROM generations WHERE id = ?', [generationId])
-    await execute(db, 'DELETE FROM gallery_likes WHERE generation_id = ?', [generationId])
-    await execute(db, 'DELETE FROM gallery_unlocks WHERE generation_id = ?', [generationId])
-    
-    return c.json({ success: true })
+    try {
+        // 1. 尝试删除 R2 中的图片文件 (清理垃圾)
+        if (c.env.IMAGES && gen.result_urls) {
+            try {
+                let urls: string[] = []
+                try {
+                    urls = JSON.parse(gen.result_urls)
+                } catch (e) {
+                    console.error('Failed to parse result_urls:', e)
+                }
+
+                if (Array.isArray(urls)) {
+                    const keys = urls
+                        .map(url => {
+                            // URL 格式可能是 /images/filename 或完整 URL
+                            // 我们只需要提取文件名
+                            if (url.startsWith('/images/')) {
+                                return url.substring(8) // remove '/images/'
+                            }
+                            // 如果是完整 URL，尝试提取最后一部分
+                            try {
+                                const urlObj = new URL(url)
+                                const parts = urlObj.pathname.split('/')
+                                return parts[parts.length - 1]
+                            } catch (e) {
+                                return null
+                            }
+                        })
+                        .filter(key => key !== null) as string[]
+
+                    if (keys.length > 0) {
+                        // R2 支持批量删除
+                        await c.env.IMAGES.delete(keys)
+                        console.log(`Deleted ${keys.length} images from R2 for generation ${generationId}`)
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to delete R2 images:', e)
+                // 不阻断数据库删除，只是记录错误
+            }
+        }
+
+        // 2. 先删除关联数据 (避免外键约束错误)
+        await execute(db, 'DELETE FROM gallery_likes WHERE generation_id = ?', [generationId])
+        await execute(db, 'DELETE FROM gallery_unlocks WHERE generation_id = ?', [generationId])
+        
+        // 将积分交易记录中的关联ID置空（保留记录但解除外键约束）
+        await execute(db, 'UPDATE point_transactions SET related_generation_id = NULL WHERE related_generation_id = ?', [generationId])
+        
+        // 3. 最后删除主记录
+        await execute(db, 'DELETE FROM generations WHERE id = ?', [generationId])
+        
+        return c.json({ success: true })
+    } catch (error: any) {
+        console.error('Delete gallery item failed:', error)
+        return c.json({ error: '删除失败: ' + (error.message || 'Unknown error') }, 500)
+    }
 })

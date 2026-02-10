@@ -7,7 +7,7 @@ import ContactModal from './ContactModal'
 import ChangePasswordModal from './ChangePasswordModal'
 
 export default function Header() {
-  const { user, logout, isAuthenticated, fetchUserInfo } = useAuthStore()
+  const { user, logout, isAuthenticated, fetchUserInfo, openAuthModal } = useAuthStore()
   const [showRecharge, setShowRecharge] = useState(false)
   const [showContact, setShowContact] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
@@ -26,8 +26,6 @@ export default function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  if (!isAuthenticated) return null
-
   return (
     <>
     <header className="fixed top-0 left-0 right-0 z-50 px-4 py-3 backdrop-blur-xl bg-black/20 border-b border-white/5 transition-all duration-300">
@@ -41,7 +39,7 @@ export default function Header() {
               <Menu size={24} />
             </button>
 
-            <Link to="/" className="text-xl font-bold text-white flex items-center space-x-2">
+            <Link to={isAuthenticated ? "/" : "/gallery"} className="text-xl font-bold text-white flex items-center space-x-2">
               <img src="/mileguo.png" alt="Logo" className="w-8 h-8" />
               <span>Mileguo</span>
             </Link>
@@ -61,7 +59,23 @@ export default function Header() {
             </nav>
           </div>
           <div className="flex items-center space-x-4">
-            {user && (
+            {!isAuthenticated ? (
+               <div className="hidden md:flex items-center gap-3">
+                 <button 
+                    onClick={() => openAuthModal('login')} 
+                    className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+                 >
+                   登录
+                 </button>
+                 <button 
+                    onClick={() => openAuthModal('register')}
+                    className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                 >
+                   注册
+                 </button>
+               </div>
+            ) : (
+              user && (
               <>
                 {/* 顶部快捷积分显示 */}
                 <div className="hidden md:flex items-center gap-1 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-md pl-4 pr-1 py-1 rounded-full border border-white/10 group hover:border-white/20 transition-all">
@@ -196,6 +210,7 @@ export default function Header() {
                     )}
                 </div>
               </>
+              )
             )}
           </div>
       </div>
@@ -216,7 +231,7 @@ export default function Header() {
         {/* 抽屉内容 */}
         <div className="absolute top-0 left-0 bottom-0 w-[80%] max-w-sm bg-[#1e1e1e] border-r border-white/10 shadow-2xl p-6 flex flex-col animate-in slide-in-from-left duration-200">
           <div className="flex justify-between items-center mb-8">
-            <Link to="/" onClick={() => setShowMobileMenu(false)} className="flex items-center space-x-2">
+            <Link to={isAuthenticated ? "/" : "/gallery"} onClick={() => setShowMobileMenu(false)} className="flex items-center space-x-2">
               <img src="/mileguo.png" alt="Logo" className="w-8 h-8" />
               <span className="text-xl font-bold text-white">Mileguo</span>
             </Link>
@@ -226,7 +241,7 @@ export default function Header() {
           </div>
 
           {/* 用户信息卡片 */}
-          {user && (
+          {isAuthenticated && user ? (
             <div className="bg-white/5 rounded-xl p-4 mb-6 border border-white/5">
               <div className="flex items-center space-x-3 mb-4">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center text-white font-bold shadow-lg">
@@ -253,18 +268,41 @@ export default function Header() {
                 </button>
               </div>
             </div>
+          ) : (
+            <div className="mb-6 space-y-3">
+               <button
+                 onClick={() => {
+                    setShowMobileMenu(false)
+                    openAuthModal('login')
+                 }}
+                 className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium shadow-lg"
+               >
+                 登录
+               </button>
+               <button
+                 onClick={() => {
+                    setShowMobileMenu(false)
+                    openAuthModal('register')
+                 }}
+                 className="w-full py-3 bg-white/5 text-white border border-white/10 rounded-xl font-medium"
+               >
+                 注册
+               </button>
+            </div>
           )}
 
           {/* 导航菜单 */}
           <nav className="flex-1 space-y-2">
-            <Link 
-              to="/" 
-              onClick={() => setShowMobileMenu(false)}
-              className="flex items-center space-x-3 text-gray-300 hover:text-white hover:bg-white/5 px-4 py-3 rounded-xl transition-colors"
-            >
-              <Home size={20} />
-              <span>首页创作</span>
-            </Link>
+            {isAuthenticated && (
+                <Link 
+                  to="/" 
+                  onClick={() => setShowMobileMenu(false)}
+                  className="flex items-center space-x-3 text-gray-300 hover:text-white hover:bg-white/5 px-4 py-3 rounded-xl transition-colors"
+                >
+                  <Home size={20} />
+                  <span>首页创作</span>
+                </Link>
+            )}
             <Link 
               to="/gallery" 
               onClick={() => setShowMobileMenu(false)}
@@ -291,16 +329,18 @@ export default function Header() {
               <MessageCircle size={20} />
               <span>联系客服</span>
             </button>
-            <button
-              onClick={() => {
-                setShowMobileMenu(false)
-                setShowChangePassword(true)
-              }}
-              className="w-full flex items-center space-x-3 text-gray-300 hover:text-white hover:bg-white/5 px-4 py-3 rounded-xl transition-colors"
-            >
-              <Lock size={20} />
-              <span>修改密码</span>
-            </button>
+            {isAuthenticated && (
+                <button
+                  onClick={() => {
+                    setShowMobileMenu(false)
+                    setShowChangePassword(true)
+                  }}
+                  className="w-full flex items-center space-x-3 text-gray-300 hover:text-white hover:bg-white/5 px-4 py-3 rounded-xl transition-colors"
+                >
+                  <Lock size={20} />
+                  <span>修改密码</span>
+                </button>
+            )}
             {user?.isAdmin && (
               <Link 
                 to="/admin" 
@@ -314,22 +354,23 @@ export default function Header() {
           </nav>
 
           {/* 底部退出按钮 */}
-          <div className="border-t border-white/10 pt-4 mt-4">
-            <button 
-              onClick={() => {
-                logout()
-                setShowMobileMenu(false)
-              }}
-              className="w-full flex items-center justify-center space-x-2 text-gray-400 hover:text-red-400 py-3 rounded-xl hover:bg-red-500/10 transition-colors"
-            >
-              <LogOut size={20} />
-              <span>退出登录</span>
-            </button>
-          </div>
+          {isAuthenticated && (
+              <div className="border-t border-white/10 pt-4 mt-4">
+                <button 
+                  onClick={() => {
+                    logout()
+                    setShowMobileMenu(false)
+                  }}
+                  className="w-full flex items-center justify-center space-x-2 text-gray-400 hover:text-red-400 py-3 rounded-xl hover:bg-red-500/10 transition-colors"
+                >
+                  <LogOut size={20} />
+                  <span>退出登录</span>
+                </button>
+              </div>
+          )}
         </div>
       </div>
     )}
     </>
   )
 }
-

@@ -115,6 +115,19 @@ app.use('/api/*', async (c, next) => {
     await next()
     return
   }
+
+  // 特殊处理：画廊列表允许“可选认证” (Optional Auth)
+  // 如果提供了 Token 则验证身份(获取点赞状态等)，未提供则作为游客访问
+  if (c.req.path === '/api/gallery/list' && c.req.method === 'GET') {
+      const authHeader = c.req.header('Authorization')
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+          return authMiddleware(c, next)
+      } else {
+          // 未提供 Token，直接放行（user 为 undefined）
+          await next()
+          return
+      }
+  }
   
   // 执行认证
   return authMiddleware(c, async () => {

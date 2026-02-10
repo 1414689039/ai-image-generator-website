@@ -16,6 +16,10 @@ interface AuthState {
   user: User | null
   token: string | null
   isAuthenticated: boolean
+  isAuthModalOpen: boolean
+  authModalTab: 'login' | 'register'
+  openAuthModal: (tab?: 'login' | 'register') => void
+  closeAuthModal: () => void
   login: (username: string, password: string) => Promise<void>
   register: (username: string, email: string, password: string) => Promise<void>
   logout: () => void
@@ -33,6 +37,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
     user: null,
     token: savedToken,
     isAuthenticated: !!savedToken,
+    isAuthModalOpen: false,
+    authModalTab: 'login',
+
+    openAuthModal: (tab = 'login') => set({ isAuthModalOpen: true, authModalTab: tab }),
+    closeAuthModal: () => set({ isAuthModalOpen: false }),
 
     login: async (username: string, password: string) => {
       try {

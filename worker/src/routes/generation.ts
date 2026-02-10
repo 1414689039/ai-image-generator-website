@@ -98,13 +98,22 @@ generationRoutes.post('/create', async (c: AuthContext) => {
     let referenceImageUrls: string[] = []
     let referenceImageBase64s: string[] = []
 
-    for (const base64Img of allRefImages) {
-        referenceImageBase64s.push(base64Img) // 始终保留 Base64
+    for (const imgStr of allRefImages) {
+        // 判断是否为 URL (http开头或/开头)
+        if (imgStr.startsWith('http') || imgStr.startsWith('/')) {
+            referenceImageUrls.push(imgStr)
+            // 对于 URL，我们也把它放入 referenceImageBase64s 以防万一 API 需要 fallback，
+            // 但更好的做法是只在 referenceImageUrls 中处理。
+            // 为了兼容性，这里暂不放入 referenceImageBase64s，以免被当做无效 base64 处理
+            continue
+        }
+
+        referenceImageBase64s.push(imgStr) // 始终保留 Base64
         
         if (imagesBucket) {
             try {
                 // 将base64转换为Buffer
-                const base64Data = base64Img.replace(/^data:image\/\w+;base64,/, '')
+                const base64Data = imgStr.replace(/^data:image\/\w+;base64,/, '')
                 const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0))
                 
                 // 生成唯一文件名
@@ -125,7 +134,10 @@ generationRoutes.post('/create', async (c: AuthContext) => {
     
     // 为了兼容数据库字段 reference_image_url (TEXT)，我们只存第一张图的 URL
     // 或者如果后续需要支持多图回显，可以存 JSON，但目前 schema 是 TEXT
-    const mainReferenceImageUrl = referenceImageUrls.length > 0 ? referenceImageUrls[0] : null
+    // 修正：存储所有 URL 的 JSON 字符串，以便前端恢复多图
+    const mainReferenceImageUrl = referenceImageUrls.length > 0 
+        ? JSON.stringify(referenceImageUrls) 
+        : null
 
     // 动态获取定价配置和API配置
     // 默认值：1K=2, 2K=4, 4K=6
@@ -770,6 +782,7 @@ generationRoutes.get('/history', async (c: AuthContext) => {
       id: number
       type: string
       prompt: string
+      reference_image_url: string | null
       model: string
       width: number
       height: number
@@ -782,7 +795,7 @@ generationRoutes.get('/history', async (c: AuthContext) => {
       error_message?: string
     }>(
       db,
-      `SELECT id, type, prompt, model, width, height, quality, quantity, 
+      `SELECT id, type, prompt, reference_image_url, model, width, height, quality, quantity, 
               points_cost, status, result_urls, created_at, progress, error_message 
        FROM generations 
        WHERE user_id = ? 
@@ -799,11 +812,33 @@ generationRoutes.get('/history', async (c: AuthContext) => {
     )
 
     return c.json({
-      generations: generations.map((g) => ({
-        ...g,
-        result_urls: g.result_urls ? JSON.parse(g.result_urls) : [],
-        points_cost: parseFloat(g.points_cost.toString()),
-      })),
+      generations: generations.map((g) => {
+        // 解析 reference_image_url
+        let parsedRefImages: string[] = []
+        if (g.reference_image_url) {
+            try {
+                // 尝试解析为 JSON 数组
+                const parsed = JSON.parse(g.reference_image_url)
+                if (Array.isArray(parsed)) {
+                    parsedRefImages = parsed
+                } else {
+                    // 如果解析出来不是数组（虽然不太可能，除非存了 JSON 对象），则当做单图
+                    parsedRefImages = [g.reference_image_url]
+                }
+            } catch (e) {
+                // 解析失败，说明是旧数据（纯 URL 字符串）
+                parsedRefImages = [g.reference_image_url]
+            }
+        }
+
+        return {
+            ...g,
+            result_urls: g.result_urls ? JSON.parse(g.result_urls) : [],
+            points_cost: parseFloat(g.points_cost.toString()),
+            // 返回标准化的数组
+            reference_image_urls: parsedRefImages
+        }
+      }),
       total: totalResult?.count || 0,
       page,
       limit,

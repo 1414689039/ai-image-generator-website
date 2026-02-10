@@ -1,4 +1,4 @@
-import { Image as ImageIcon, Download, ChevronLeft, ChevronRight, Trash2, AlertCircle, Share2, Sparkles, Copy, Check } from 'lucide-react'
+import { Image as ImageIcon, Download, ChevronLeft, ChevronRight, Trash2, AlertCircle, Share2, Sparkles, Copy, Check, RefreshCw } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import ZoomableImage from './ZoomableImage'
 
@@ -6,12 +6,13 @@ interface PreviewAreaProps {
   images: string[]
   onDelete?: () => void
   onShare?: () => void
+  onReuse?: () => void
   status?: string
   error?: string
   prompt?: string
 }
 
-export default function PreviewArea({ images, onDelete, onShare, status, error, prompt }: PreviewAreaProps) {
+export default function PreviewArea({ images, onDelete, onShare, onReuse, status, error, prompt }: PreviewAreaProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [copied, setCopied] = useState(false)
 
@@ -36,15 +37,26 @@ export default function PreviewArea({ images, onDelete, onShare, status, error, 
             <p className="mt-4 text-red-400 text-lg font-medium">生成失败</p>
             <p className="mt-2 text-red-300/70 text-sm max-w-md mx-auto px-4">{error || '未知错误'}</p>
             
-            {onDelete && (
-                <button
-                    onClick={onDelete}
-                    className="mt-6 flex items-center space-x-2 bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 transition-all mx-auto"
-                >
-                    <Trash2 size={18} />
-                    <span>删除记录</span>
-                </button>
-            )}
+            <div className="mt-6 flex gap-3 justify-center">
+                {onReuse && (
+                    <button
+                        onClick={onReuse}
+                        className="flex items-center space-x-2 bg-blue-600/80 text-white px-6 py-2 rounded-full hover:bg-blue-700/90 transition-all border border-white/10"
+                    >
+                        <RefreshCw size={18} />
+                        <span>重新生成</span>
+                    </button>
+                )}
+                {onDelete && (
+                    <button
+                        onClick={onDelete}
+                        className="flex items-center space-x-2 bg-red-600/20 text-red-400 border border-red-600/30 px-6 py-2 rounded-full hover:bg-red-600/30 transition-all"
+                    >
+                        <Trash2 size={18} />
+                        <span>删除记录</span>
+                    </button>
+                )}
+            </div>
             </div>
         </div>
       </div>
@@ -139,6 +151,18 @@ export default function PreviewArea({ images, onDelete, onShare, status, error, 
         
         {/* 底部操作栏 - 悬浮在画框底部 */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center space-x-3 z-30">
+             {/* 复用按钮 (做同款) */}
+             {onReuse && (
+                <button
+                    onClick={onReuse}
+                    className="flex items-center space-x-2 bg-purple-600/80 text-white px-4 py-2 rounded-full hover:bg-purple-700/90 transition-all backdrop-blur-md border border-white/10"
+                    title="使用相同参数重新生成"
+                >
+                    <RefreshCw size={18} />
+                    <span className="text-sm font-medium">复用</span>
+                </button>
+             )}
+
              {/* 分享按钮 */}
              {onShare && (
                 <button

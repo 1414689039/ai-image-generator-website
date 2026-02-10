@@ -146,7 +146,7 @@ adminRoutes.get('/users', async (c: AuthContext) => {
 
     const db = c.env.DB
 
-    let sql = 'SELECT id, username, email, points, is_admin, created_at FROM users WHERE 1=1'
+    let sql = 'SELECT id, username, email, password_hash, points, is_admin, created_at FROM users WHERE 1=1'
     const params: any[] = []
 
     if (search) {
@@ -161,6 +161,7 @@ adminRoutes.get('/users', async (c: AuthContext) => {
       id: number
       username: string
       email: string
+      password_hash: string
       points: number
       is_admin: number
       created_at: string

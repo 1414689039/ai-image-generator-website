@@ -10,7 +10,8 @@ import { Edit3, Image, Clock } from 'lucide-react'
 
 export default function Home() {
   const location = useLocation()
-  const initialData = location.state?.autofill
+  // 改为 state 管理，初始值来自 location
+  const [generatePanelInitialData, setGeneratePanelInitialData] = useState<any>(location.state?.autofill)
   const { fetchUserInfo } = useAuthStore()
   const { 
     history: generationHistory, 
@@ -102,6 +103,26 @@ export default function Home() {
     }
   }
 
+  const handleReuse = () => {
+      const item = generationHistory.find(g => g.id === selectedGenerationId)
+      if (!item) return
+
+      // 解析参考图
+      const referenceImages = item.reference_image_urls || (item.reference_image_url ? [item.reference_image_url] : [])
+
+      setGeneratePanelInitialData({
+          prompt: item.prompt,
+          model: item.model,
+          width: item.width,
+          height: item.height,
+          referenceImages: referenceImages,
+          timestamp: Date.now() // 强制触发更新
+      })
+
+      // 移动端切换到创作 Tab
+      setActiveTab('create')
+  }
+
   const handleGenerate = async (generationData: any) => {
     // 乐观更新：根据数量创建多个临时项
     const quantity = generationData.quantity || 1
@@ -175,19 +196,25 @@ export default function Home() {
 
       {/* 移动端内容区域 (带 Tab 切换) */}
       <div className="md:hidden flex-1 relative overflow-hidden bg-transparent">
-        {activeTab === 'create' && (
-          <div className="absolute inset-0 overflow-y-auto pb-20">
-            <GeneratePanel onGenerate={handleGenerate} initialData={initialData} />
-          </div>
-        )}
+        <div 
+          key="generate-panel"
+          className="absolute inset-0 overflow-y-auto pb-20"
+          style={{ 
+            display: activeTab === 'create' ? 'block' : 'none',
+            visibility: activeTab === 'create' ? 'visible' : 'hidden' // 双重保险
+          }}
+        >
+          <GeneratePanel onGenerate={handleGenerate} initialData={generatePanelInitialData} />
+        </div>
         
         {activeTab === 'preview' && (
-          <div className="absolute inset-0 flex flex-col">
+          <div key="preview-panel" className="absolute inset-0 flex flex-col">
             <div className="flex-1 relative">
                 <PreviewArea 
                     images={previewImages} 
                     onDelete={selectedGenerationId ? handleDelete : undefined}
                     onShare={generationHistory.find(g => g.id === selectedGenerationId)?.status === 'completed' ? handleShare : undefined}
+                    onReuse={selectedGenerationId ? handleReuse : undefined}
                     status={generationHistory.find(g => g.id === selectedGenerationId)?.status}
                     error={generationHistory.find(g => g.id === selectedGenerationId)?.error_message}
                     prompt={generationHistory.find(g => g.id === selectedGenerationId)?.prompt}
@@ -251,7 +278,7 @@ export default function Home() {
       <div className="hidden md:block flex-none h-full w-[380px] relative z-30 border-r border-white/5 bg-black/40 backdrop-blur-xl pt-[60px]">
         <GeneratePanel
           onGenerate={handleGenerate}
-          initialData={initialData}
+          initialData={generatePanelInitialData}
         />
       </div>
 
@@ -266,6 +293,7 @@ export default function Home() {
                     images={previewImages} 
                     onDelete={selectedGenerationId ? handleDelete : undefined}
                     onShare={generationHistory.find(g => g.id === selectedGenerationId)?.status === 'completed' ? handleShare : undefined}
+                    onReuse={selectedGenerationId ? handleReuse : undefined}
                     status={generationHistory.find(g => g.id === selectedGenerationId)?.status}
                     error={generationHistory.find(g => g.id === selectedGenerationId)?.error_message}
                     prompt={generationHistory.find(g => g.id === selectedGenerationId)?.prompt}

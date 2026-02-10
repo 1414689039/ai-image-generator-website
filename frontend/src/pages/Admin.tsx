@@ -14,6 +14,15 @@ export default function Admin() {
   const [providers, setProviders] = useState<any[]>([])
   const [providerModal, setProviderModal] = useState<{ show: boolean, data: any }>({ show: false, data: {} })
   
+  // 分页状态
+  const [userPage, setUserPage] = useState(1)
+  const [userTotal, setUserTotal] = useState(0)
+  const USER_LIMIT = 20
+
+  const [orderPage, setOrderPage] = useState(1)
+  const [orderTotal, setOrderTotal] = useState(0)
+  const ORDER_LIMIT = 20
+
   // 筛选状态
   const [genUserIdFilter, setGenUserIdFilter] = useState('') // 生效的筛选ID
   const [genUserIdInput, setGenUserIdInput] = useState('')   // 输入框的临时ID
@@ -32,7 +41,8 @@ export default function Admin() {
   const [pointsDesc, setPointsDesc] = useState('')
 
   useEffect(() => {
-    // 切换 tab 或筛选条件变化时，重置页码为 1
+    // 切换 tab 或筛选条件变化时，重置页码为 1 (仅针对当前 tab 相关的)
+    // 注意：这里简单处理，实际上可能不需要重置 userPage/orderPage，除非有筛选条件
     if (activeTab === 'generations') {
         setGenPage(1)
     }
@@ -44,24 +54,24 @@ export default function Admin() {
 
   // 监听页码变化单独加载
   useEffect(() => {
-    if (activeTab === 'generations') {
-        loadData()
-    }
-    if (activeTab === 'logs') {
-        loadData()
-    }
-  }, [genPage, logPage])
+    if (activeTab === 'users') loadData()
+    if (activeTab === 'orders') loadData()
+    if (activeTab === 'generations') loadData()
+    if (activeTab === 'logs') loadData()
+  }, [userPage, orderPage, genPage, logPage])
 
   const loadData = async () => {
     try {
       switch (activeTab) {
         case 'users':
-          const usersRes = await apiClient.get('/admin/users')
+          const usersRes = await apiClient.get(`/admin/users?page=${userPage}&limit=${USER_LIMIT}`)
           setUsers(usersRes.data.users || [])
+          setUserTotal(usersRes.data.total || 0)
           break
         case 'orders':
-          const ordersRes = await apiClient.get('/admin/orders')
+          const ordersRes = await apiClient.get(`/admin/orders?page=${orderPage}&limit=${ORDER_LIMIT}`)
           setOrders(ordersRes.data.orders || [])
+          setOrderTotal(ordersRes.data.total || 0)
           break
         case 'generations':
           const genRes = await apiClient.get(`/admin/generations?page=${genPage}&limit=${GEN_LIMIT}${genUserIdFilter ? `&userId=${genUserIdFilter}` : ''}`)
@@ -331,6 +341,7 @@ export default function Admin() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">ID</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">用户名</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">邮箱</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">密码 (Hash)</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">积分</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">角色</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">操作</th>
@@ -342,6 +353,9 @@ export default function Admin() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm">{user.id}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">{user.username}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{user.email}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono" title={user.password_hash}>
+                            {user.password_hash ? `${user.password_hash.substring(0, 8)}...` : 'N/A'}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-blue-300">{user.points.toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                             {user.isAdmin ? <span className="text-purple-400 font-bold">管理员</span> : '用户'}
@@ -376,6 +390,29 @@ export default function Admin() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              
+              {/* Users Pagination */}
+              <div className="flex justify-between items-center mt-4 text-sm text-gray-400">
+                  <div>
+                      共 {userTotal} 个用户，当前第 {userPage} 页
+                  </div>
+                  <div className="flex gap-2">
+                      <button 
+                        onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                        disabled={userPage === 1}
+                        className="px-3 py-1 bg-white/5 rounded hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        上一页
+                      </button>
+                      <button 
+                        onClick={() => setUserPage(p => p + 1)}
+                        disabled={userPage * USER_LIMIT >= userTotal}
+                        className="px-3 py-1 bg-white/5 rounded hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        下一页
+                      </button>
+                  </div>
               </div>
             </div>
           )}
@@ -412,6 +449,29 @@ export default function Admin() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Orders Pagination */}
+              <div className="flex justify-between items-center mt-4 text-sm text-gray-400">
+                  <div>
+                      共 {orderTotal} 条订单，当前第 {orderPage} 页
+                  </div>
+                  <div className="flex gap-2">
+                      <button 
+                        onClick={() => setOrderPage(p => Math.max(1, p - 1))}
+                        disabled={orderPage === 1}
+                        className="px-3 py-1 bg-white/5 rounded hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        上一页
+                      </button>
+                      <button 
+                        onClick={() => setOrderPage(p => p + 1)}
+                        disabled={orderPage * ORDER_LIMIT >= orderTotal}
+                        className="px-3 py-1 bg-white/5 rounded hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        下一页
+                      </button>
+                  </div>
               </div>
             </div>
           )}

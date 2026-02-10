@@ -12,6 +12,9 @@ interface GeneratePanelProps {
     quantity?: number
     width?: number
     height?: number
+    referenceImage?: string // 兼容旧接口
+    referenceImages?: string[] // 新增：多图数组
+    timestamp?: number // 用于强制触发更新
   } | null
 }
 
@@ -41,23 +44,26 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
   })
 
   // 监听 initialData 变化，如果是再次生成，回填参数
+  const prevInitialDataRef = useRef<string>('')
+
   useEffect(() => {
     // 加载配置
     apiClient.get('/config').then(res => {
+        // ... (保持配置加载逻辑不变)
         if (res.data?.config) {
-            // ... pricing config ...
             setPriceConfig({
                 price_1k: parseFloat(res.data.config.price_1k) || 2,
                 price_2k: parseFloat(res.data.config.price_2k) || 4,
                 price_4k: parseFloat(res.data.config.price_4k) || 6
             })
 
-            // 加载模型列表 (只取第一个模型作为默认值)
             if (res.data.config.provider_models) {
                 try {
                     const parsedModels = JSON.parse(res.data.config.provider_models)
                     if (Array.isArray(parsedModels) && parsedModels.length > 0) {
-                        setModel(parsedModels[0].id)
+                        // 只有当当前 model 还没被 initialData 设置过时，才设置默认值
+                        // 或者简单点，如果 model 是初始值才设置
+                        setModel(prev => prev === 'gemini-3-pro-image-preview' ? parsedModels[0].id : prev)
                     }
                 } catch (e) {
                     console.error('Failed to parse provider models:', e)
@@ -65,28 +71,42 @@ export default function GeneratePanel({ onGenerate, initialData }: GeneratePanel
             }
         }
     }).catch(err => console.error('Failed to load config:', err))
-    
+  }, []) // 只在挂载时加载配置
+
+  useEffect(() => {
     if (initialData) {
+      // 深度比较，防止引用变化导致重置
+      const currentDataStr = JSON.stringify(initialData)
+      if (currentDataStr === prevInitialDataRef.current) {
+          return
+      }
+      prevInitialDataRef.current = currentDataStr
+
       if (initialData.prompt) setPrompt(initialData.prompt)
       if (initialData.model) setModel(initialData.model)
       if (initialData.quantity) setQuantity(initialData.quantity)
       
+      if (initialData.referenceImages && initialData.referenceImages.length > 0) {
+        setReferenceImages(initialData.referenceImages)
+      } else if (initialData.referenceImage) {
+        setReferenceImages([initialData.referenceImage])
+      } else {
+        setReferenceImages([])
+      }
+      
       // 解析宽高比
       if (initialData.width && initialData.height) {
-        // 计算最大公约数
+        // ... (保持原有宽高比计算逻辑)
         const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
         const divisor = gcd(initialData.width, initialData.height)
         const ratio = `${initialData.width / divisor}:${initialData.height / divisor}`
         
-        // 检查是否在预设列表中
         if (ASPECT_RATIOS.includes(ratio)) {
              setAspectRatio(ratio)
         } else {
-             // 默认回退到 1:1
              setAspectRatio('1:1')
         }
         
-        // 解析分辨率
         const maxDim = Math.max(initialData.width, initialData.height)
         if (maxDim >= 3000) setResolution('4K')
         else if (maxDim >= 2000) setResolution('2K')

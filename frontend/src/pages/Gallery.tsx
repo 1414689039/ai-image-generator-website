@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
-import { Heart, Lock, Unlock, User, Sparkles, Filter, Clock, Flame, X, Zap, Trash2, Settings } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Heart, Lock, User, Sparkles, Filter, Clock, Flame, X, Zap, Trash2, Settings, Download } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import apiClient from '../api/client'
 import { useAuthStore } from '../store/authStore'
+import LoginGuideModal from '../components/LoginGuideModal'
 
 interface GalleryItem {
   id: number
@@ -16,11 +17,13 @@ interface GalleryItem {
   likes_count: number
   purchases_count: number
   result_urls: string[]
-  shared_at: string
+  created_at: string
   is_owner: number
   is_unlocked: number
   is_liked: number
   prompt: string
+  reference_image_url?: string // Raw string from DB (might be JSON or single URL)
+  reference_image_urls?: string[] // Normalized array from API
 }
 
 export default function Gallery() {
@@ -28,39 +31,107 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'latest' | 'popular' | 'my'>('latest')
   const [selectedItem, setSelectedItem] = useState<GalleryItem | null>(null)
-  const { user, fetchUserInfo } = useAuthStore()
+  const { user, fetchUserInfo, isAuthenticated } = useAuthStore()
   const navigate = useNavigate()
+  const [showLoginGuide, setShowLoginGuide] = useState(false)
   
+  // 分页状态
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+  const [isFetching, setIsFetching] = useState(false)
+
   // 编辑费用状态
   const [editingPriceId, setEditingPriceId] = useState<number | null>(null)
   const [newPrice, setNewPrice] = useState('')
 
-  const fetchItems = async () => {
+  // 滚动加载观察器
+  const observer = useRef<IntersectionObserver>()
+  const lastElementRef = useCallback((node: HTMLDivElement) => {
+    if (loading || isFetching) return
+    if (observer.current) observer.current.disconnect()
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        setPage(prevPage => prevPage + 1)
+      }
+    })
+    if (node) observer.current.observe(node)
+  }, [loading, isFetching, hasMore])
+
+  const fetchItems = useCallback(async (pageNum: number) => {
     try {
-      setLoading(true)
-      let url = '/gallery/list?page=1'
+      if (pageNum === 1) setLoading(true)
+      else setIsFetching(true)
+      
+      let url = `/gallery/list?page=${pageNum}&limit=20`
       
       if (activeTab === 'popular') {
         url += '&sort=popular'
       } else if (activeTab === 'my') {
+        if (!isAuthenticated) {
+             setActiveTab('latest')
+             setShowLoginGuide(true)
+             return
+        }
         url += '&filter=my'
       }
 
       const res = await apiClient.get(url)
-      setItems(res.data.items)
+      const newItems = res.data.items
+      
+      if (pageNum === 1) {
+        setItems(newItems)
+      } else {
+        setItems(prev => [...prev, ...newItems])
+      }
+      
+      // 如果返回少于20条，说明没有更多了
+      if (newItems.length < 20) {
+          setHasMore(false)
+      } else {
+          setHasMore(true)
+      }
     } catch (error) {
       console.error('Fetch gallery error:', error)
     } finally {
       setLoading(false)
+      setIsFetching(false)
     }
-  }
+  }, [activeTab, isAuthenticated])
 
+  // 切换 Tab 时重置并加载第一页
   useEffect(() => {
-    fetchItems()
-  }, [activeTab])
+    setItems([])
+    setPage(1)
+    setHasMore(true)
+    fetchItems(1)
+  }, [activeTab, fetchItems])
+
+  // 页码增加时加载下一页
+  useEffect(() => {
+    if (page > 1) {
+        fetchItems(page)
+    }
+  }, [page, fetchItems])
+
+  // 详情模态框打开时锁定背景滚动
+  useEffect(() => {
+    if (selectedItem) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [selectedItem])
 
   const handleLike = async (e: React.MouseEvent, id: number, currentLiked: boolean) => {
     e.stopPropagation()
+    if (!isAuthenticated) {
+        setShowLoginGuide(true)
+        return
+    }
+    
     try {
       // 乐观更新
       setItems(prev => prev.map(item => {
@@ -82,14 +153,19 @@ export default function Gallery() {
         }) : null)
       }
 
-      await apiClient.post('/gallery/like', { generationId: id })
+      await apiClient.post(`/gallery/${id}/like`, {})
     } catch (error) {
       console.error('Like error:', error)
-      fetchItems() // 失败回滚
+      fetchItems(page) // 失败回滚 (简单起见刷新当前页可能会有问题，最好是只刷新该Item，但这里简化处理)
     }
   }
 
   const handleMakeSameStyle = async (item: GalleryItem) => {
+    if (!isAuthenticated) {
+        setShowLoginGuide(true)
+        return
+    }
+
     // 1. 如果是自己的作品或已解锁，直接跳转
     if (item.is_owner || item.is_unlocked || item.price === 0) {
       navigate('/', { 
@@ -99,7 +175,8 @@ export default function Gallery() {
             model: item.model,
             width: item.width,
             height: item.height,
-            type: item.type
+            type: item.type,
+            referenceImages: item.reference_image_urls || (item.reference_image_url ? [item.reference_image_url] : [])
           } 
         } 
       })
@@ -144,7 +221,8 @@ export default function Gallery() {
                 model: item.model,
                 width: item.width,
                 height: item.height,
-                type: item.type
+                type: item.type,
+                referenceImages: item.reference_image_urls || (item.reference_image_url ? [item.reference_image_url] : [])
               } 
             } 
           })
@@ -190,6 +268,26 @@ export default function Gallery() {
     }
   }
 
+  const handleDownload = async (e: React.MouseEvent, url: string, filename: string) => {
+    e.stopPropagation()
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const blobUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = filename || `ai-image-${Date.now()}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Download failed:', error)
+      // 降级处理：直接打开图片
+      window.open(url, '_blank')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-transparent text-white px-4 md:px-8 pt-20 md:pt-32 pb-24">
       <div className="max-w-[1920px] mx-auto">
@@ -227,7 +325,13 @@ export default function Gallery() {
               <span>热门</span>
             </button>
             <button
-              onClick={() => setActiveTab('my')}
+              onClick={() => {
+                if (!isAuthenticated) {
+                  setShowLoginGuide(true)
+                  return
+                }
+                setActiveTab('my')
+              }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
                 activeTab === 'my' 
                   ? 'bg-green-600 text-white shadow-lg' 
@@ -241,7 +345,7 @@ export default function Gallery() {
         </div>
 
         {/* Gallery Grid */}
-        {loading ? (
+        {loading && page === 1 ? (
           <div className="flex justify-center items-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           </div>
@@ -251,82 +355,85 @@ export default function Gallery() {
             <p>暂无内容，快去生成第一张图片并分享吧！</p>
           </div>
         ) : (
-          <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4 space-y-4">
-            {items.map((item) => (
-              <div 
-                key={item.id} 
-                onClick={() => setSelectedItem(item)}
-                className="break-inside-avoid bg-white/5 rounded-xl overflow-hidden border border-white/10 hover:border-blue-500/30 transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] group cursor-pointer backdrop-blur-sm"
-              >
-                {/* Image */}
-                <div className="relative aspect-auto">
-                  <img 
-                    src={item.result_urls[0]} 
-                    alt="AI Generated" 
-                    className="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-105"
-                    loading="lazy"
-                  />
-                  {/* Overlay Info - Desktop only hover, Mobile always visible or specific trigger */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2 text-sm text-gray-300">
-                        <User size={14} />
-                        <span>{item.author_name}</span>
+          <>
+            <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 space-y-2">
+              {items.map((item) => (
+                <div 
+                  key={item.id} 
+                  onClick={() => setSelectedItem(item)}
+                  className="break-inside-avoid bg-white/5 rounded-lg overflow-hidden border border-white/10 hover:border-blue-500/30 transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] group cursor-pointer backdrop-blur-sm"
+                >
+                  {/* Image */}
+                  <div 
+                    className="relative"
+                    style={{ aspectRatio: `${item.width} / ${item.height}` }}
+                  >
+                    <img 
+                      src={item.result_urls[0]} 
+                      alt="AI Generated" 
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                    {/* Overlay Info - Desktop only hover, Mobile always visible or specific trigger */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2 text-sm text-gray-300">
+                          <User size={14} />
+                          <span>{item.author_name}</span>
+                        </div>
+                        <button
+                          onClick={(e) => handleDownload(e, item.result_urls[0], `ai-art-${item.id}.png`)}
+                          className="p-1.5 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+                          title="下载图片"
+                        >
+                          <Download size={16} />
+                        </button>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Content */}
-                <div className="p-4 space-y-3">
-                  {/* Prompt Preview (Truncated) */}
-                  <div className="bg-black/30 rounded-lg p-3 relative group/prompt">
-                    <div className="flex items-start gap-2">
-                      <Sparkles size={16} className="text-purple-400 shrink-0 mt-0.5" />
-                      <p className={`text-sm line-clamp-2 ${item.is_unlocked || item.is_owner ? 'text-gray-300' : 'text-gray-500 blur-sm select-none'}`}>
-                        {item.prompt}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Actions - Mobile Optimized Layout */}
-                  <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+                  {/* Content - Compact Layout */}
+                  <div className="px-2 py-2">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <button 
-                            onClick={(e) => handleLike(e, item.id, !!item.is_liked)}
-                            className={`flex items-center gap-1.5 text-xs md:text-sm transition-colors ${
-                              item.is_liked ? 'text-pink-500' : 'text-gray-400 hover:text-pink-400'
-                            }`}
-                          >
-                            <Heart size={16} fill={item.is_liked ? "currentColor" : "none"} />
-                            <span>{item.likes_count}</span>
-                          </button>
-                          <div className="flex items-center gap-1.5 text-xs md:text-sm text-gray-500">
-                            <Unlock size={14} />
-                            <span>{item.purchases_count}</span>
-                          </div>
-                        </div>
+                        <button 
+                          onClick={(e) => handleLike(e, item.id, !!item.is_liked)}
+                          className={`flex items-center gap-1 text-xs transition-colors ${
+                            item.is_liked ? 'text-pink-500' : 'text-gray-400 hover:text-pink-400'
+                          }`}
+                        >
+                          <Heart size={14} fill={item.is_liked ? "currentColor" : "none"} />
+                          <span>{item.likes_count}</span>
+                        </button>
 
-                        {/* Quick Make Same Style Button */}
-                        <div className="flex items-center gap-2">
-                          <button 
-                              onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleMakeSameStyle(item)
-                              }}
-                              className="text-xs flex items-center gap-1 bg-blue-600/20 text-blue-400 px-3 py-1.5 rounded-full hover:bg-blue-600/30 transition-colors font-medium whitespace-nowrap"
-                          >
-                              <Zap size={12} />
-                              做同款
-                          </button>
-                        </div>
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handleMakeSameStyle(item)
+                            }}
+                            className="text-[10px] flex items-center gap-1 bg-blue-600/20 text-blue-400 px-2 py-1 rounded-full hover:bg-blue-600/30 transition-colors font-medium whitespace-nowrap"
+                        >
+                            <Zap size={10} />
+                            做同款
+                        </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+
+            {/* Load More Trigger & Indicator */}
+            <div ref={lastElementRef} className="py-8 flex justify-center items-center">
+                {isFetching && (
+                    <div className="flex items-center gap-2 text-gray-400">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                        <span>加载更多...</span>
+                    </div>
+                )}
+                {!hasMore && items.length > 0 && (
+                    <div className="text-gray-500 text-sm">已经到底啦 ~</div>
+                )}
+            </div>
+          </>
         )}
 
         {/* Image Detail Modal - 移动端全屏，桌面端弹窗 */}
@@ -342,12 +449,22 @@ export default function Gallery() {
               </button>
 
               {/* Left: Image View */}
-              <div className="flex-1 bg-black flex items-center justify-center p-0 md:p-4 relative group overflow-hidden">
-                <img 
-                  src={selectedItem.result_urls[0]} 
-                  alt="Detail" 
-                  className="w-full h-full object-contain md:shadow-2xl"
-                />
+              <div className="flex-1 bg-black p-0 md:p-4 relative group overflow-y-auto md:overflow-hidden">
+                <div className="min-h-full w-full flex items-center justify-center">
+                  <img 
+                    src={selectedItem.result_urls[0]} 
+                    alt="Detail" 
+                    className="w-full h-auto md:w-full md:h-full md:object-contain md:shadow-2xl block"
+                  />
+                  {/* 大图下载按钮 */}
+                  <button
+                    onClick={(e) => handleDownload(e, selectedItem.result_urls[0], `ai-art-${selectedItem.id}.png`)}
+                    className="absolute bottom-6 right-6 p-3 bg-black/50 hover:bg-black/70 text-white rounded-full backdrop-blur-md transition-all opacity-0 group-hover:opacity-100 border border-white/10"
+                    title="下载原图"
+                  >
+                    <Download size={24} />
+                  </button>
+                </div>
               </div>
 
               {/* Right: Info & Actions */}
@@ -360,7 +477,7 @@ export default function Gallery() {
                     <div>
                       <h3 className="font-medium text-white">{selectedItem.author_name}</h3>
                       <p className="text-xs text-gray-400">
-                        发布于 {new Date(selectedItem.shared_at).toLocaleString()}
+                        发布于 {new Date(selectedItem.created_at.replace(/-/g, '/')).toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -482,14 +599,14 @@ export default function Gallery() {
                        </>
                    )}
                    
-                   {/* Owner Delete Option (Subtle) */}
-                   {selectedItem.is_owner === 1 && editingPriceId !== selectedItem.id && (
+                   {/* Owner or Admin Delete Option (Subtle) */}
+                   {(selectedItem.is_owner === 1 || user?.isAdmin) && editingPriceId !== selectedItem.id && (
                        <button 
                           onClick={(e) => handleDelete(e, selectedItem.id)}
                           className="w-full py-2 text-red-400/70 hover:text-red-400 text-xs flex items-center justify-center gap-1 transition-colors mt-2"
                        >
                           <Trash2 size={12} />
-                          删除此分享
+                          {selectedItem.is_owner === 1 ? '删除此分享' : '删除此贴 (管理员)'}
                        </button>
                    )}
                 </div>
@@ -497,6 +614,8 @@ export default function Gallery() {
             </div>
           </div>
         )}
+
+        <LoginGuideModal isOpen={showLoginGuide} onClose={() => setShowLoginGuide(false)} />
       </div>
     </div>
   )
